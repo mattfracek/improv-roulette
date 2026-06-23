@@ -20,7 +20,10 @@
   @media (max-width:640px){ .videos { grid-template-columns:1fr; } }
   .vbox { position:relative; aspect-ratio:4/3; background:#000; border:1px solid var(--line);
           border-radius:12px; overflow:hidden; cursor:pointer; }
-  .vbox video { width:100%; height:100%; object-fit:cover; background:#000; }
+  /* video + overlays must not eat the tap, or the container's expand handler never fires (esp. iOS) */
+  .vbox video { width:100%; height:100%; object-fit:cover; background:#000; pointer-events:none; }
+  .vbox .label, .exit-hint { pointer-events:none; }
+  .vbox.waiting::after { pointer-events:none; }
   /* tap a video to fill the screen */
   .vbox.expanded { position:fixed; inset:0; z-index:60; border:none; border-radius:0; aspect-ratio:auto; }
   .vbox.expanded video { object-fit:contain; }
