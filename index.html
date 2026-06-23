@@ -19,8 +19,14 @@
   .videos { display:grid; grid-template-columns:1fr 1fr; gap:16px; width:100%; max-width:1240px; }
   @media (max-width:640px){ .videos { grid-template-columns:1fr; } }
   .vbox { position:relative; aspect-ratio:4/3; background:#000; border:1px solid var(--line);
-          border-radius:12px; overflow:hidden; }
+          border-radius:12px; overflow:hidden; cursor:pointer; }
   .vbox video { width:100%; height:100%; object-fit:cover; background:#000; }
+  /* tap a video to fill the screen */
+  .vbox.expanded { position:fixed; inset:0; z-index:60; border:none; border-radius:0; aspect-ratio:auto; }
+  .vbox.expanded video { object-fit:contain; }
+  .exit-hint { position:absolute; top:12px; right:12px; font-size:11px; letter-spacing:1px; text-transform:uppercase;
+               color:#fff; background:rgba(0,0,0,.5); padding:4px 9px; border-radius:6px; display:none; }
+  .vbox.expanded .exit-hint { display:block; }
   .vbox .label { position:absolute; left:10px; bottom:8px; font-size:11px; letter-spacing:1px;
                  text-transform:uppercase; color:#fff; background:rgba(0,0,0,.45); padding:3px 8px; border-radius:6px; }
   .vbox.waiting::after { content:attr(data-msg); position:absolute; inset:0; display:flex; align-items:center;
@@ -58,8 +64,8 @@
 
   <div class="wrap">
     <div class="videos">
-      <div class="vbox"><video id="localVideo" autoplay playsinline muted></video><span class="label">You</span></div>
-      <div class="vbox waiting" id="remoteBox" data-msg="No partner yet"><video id="remoteVideo" autoplay playsinline></video><span class="label">Partner</span></div>
+      <div class="vbox" id="localBox"><video id="localVideo" autoplay playsinline muted></video><span class="label">You</span><span class="exit-hint">Tap to exit</span></div>
+      <div class="vbox waiting" id="remoteBox" data-msg="No partner yet"><video id="remoteVideo" autoplay playsinline></video><span class="label">Partner</span><span class="exit-hint">Tap to exit</span></div>
     </div>
 
     <div class="status" id="status">Tap Start to turn on your camera.</div>
@@ -118,6 +124,7 @@ const els = {
   local: document.getElementById("localVideo"),
   remote: document.getElementById("remoteVideo"),
   remoteBox: document.getElementById("remoteBox"),
+  localBox: document.getElementById("localBox"),
   relValue: document.getElementById("relValue"),
   locValue: document.getElementById("locValue"),
   genRel: document.getElementById("genRel"),
@@ -284,6 +291,7 @@ function teardownPeer(){
   matched = false;
   if(pc){ pc.ontrack = pc.onicecandidate = pc.onconnectionstatechange = null; pc.close(); pc = null; }
   els.remote.srcObject = null;
+  els.remoteBox.classList.remove("expanded");   // collapse if partner left while expanded
 }
 
 // ---- Buttons ------------------------------------------------------------
@@ -341,6 +349,15 @@ els.stop.onclick = () => {
 
 els.genRel.onclick = () => generatePrompt("relationship");
 els.genLoc.onclick = () => generatePrompt("location");
+
+// Tap a video to fill the screen; tap again to shrink. Only expands a live feed.
+function toggleExpand(box, video){
+  if(box.classList.contains("expanded")){ box.classList.remove("expanded"); return; }
+  if(!video || !video.srcObject) return;
+  box.classList.add("expanded");
+}
+els.localBox.addEventListener("click", () => toggleExpand(els.localBox, els.local));
+els.remoteBox.addEventListener("click", () => toggleExpand(els.remoteBox, els.remote));
 
 // Connect on page load so the online counter shows before you hit Start.
 // We only send "join" (enter the matchmaking queue) when Start is pressed.
