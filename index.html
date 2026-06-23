@@ -15,6 +15,9 @@
   header .tag { color:var(--muted); font-size:12px; }
   header .online { margin-left:auto; color:var(--muted); font-size:12px; display:flex; align-items:center; gap:7px; white-space:nowrap; }
   header .online .dot { width:8px; height:8px; border-radius:50%; background:#4ade80; box-shadow:0 0 6px #4ade8088; }
+  .banner { background:#1b1e27; border-bottom:1px solid var(--line); color:var(--muted);
+            font-size:13px; text-align:center; padding:9px 18px; line-height:1.4; }
+  .banner b { color:var(--accent); }
   .wrap { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:22px; gap:18px; }
   .videos { display:grid; grid-template-columns:1fr 1fr; gap:16px; width:100%; max-width:1240px; }
   @media (max-width:640px){ .videos { grid-template-columns:1fr; } }
@@ -64,6 +67,8 @@
     <span class="tag">practice with a random partner</span>
     <span class="online" id="online"><span class="dot"></span>connecting...</span>
   </header>
+
+  <div class="banner">&#127793; We're brand new and growing. Best time to find a partner: <b>7&nbsp;PM Central, nightly</b>. Hop on then.</div>
 
   <div class="wrap">
     <div class="videos">
@@ -221,8 +226,8 @@ function connectSignal(){
 async function handleSignal(msg){
   if(msg.t === "waiting"){
     matched = false;
-    setRemoteMsg("Looking for a partner...");
-    setStatus("Waiting for someone to join...");
+    setRemoteMsg("No one here yet — peak time is 7 PM CT");
+    setStatus("Nobody here right now.. we're brand new. The crowd shows up around <b>7 PM Central</b>. Stay on and you'll match the moment someone joins.");
   }
   else if(msg.t === "matched"){
     matched = true;
