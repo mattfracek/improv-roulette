@@ -248,6 +248,12 @@ async function handleSignal(msg){
     resetPrompts();
     setStatus("Connected. <b>Go.</b>");
     await startPeer(msg.initiator);
+    // One side (the initiator) auto-generates the opening scene and broadcasts it,
+    // so BOTH partners start from the exact same relationship + location.
+    if(msg.initiator){
+      generatePrompt("relationship");
+      generatePrompt("location");
+    }
   }
   else if(msg.t === "sig"){
     await onRemoteSignal(msg);
