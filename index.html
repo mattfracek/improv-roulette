@@ -91,6 +91,12 @@
   <footer>Peer-to-peer video over WebRTC. Your camera streams directly to your partner, not through any server.</footer>
 
 <script>
+// Force HTTPS first. Camera/mic (getUserMedia) is blocked on insecure http,
+// which fails silently with no permission prompt.
+if (location.protocol === "http:" && !["localhost","127.0.0.1"].includes(location.hostname)) {
+  location.replace("https://" + location.host + location.pathname + location.search);
+}
+
 // ---- Config -------------------------------------------------------------
 // Local testing uses the Node server (server/server.js) on :8787.
 // In production, point this at your deployed Cloudflare Worker URL.
@@ -286,11 +292,21 @@ els.start.onclick = async () => {
     setStatus(`The room opens at ${OPEN_WINDOW.startHour}:00. Come back then.`);
     return;
   }
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    setStatus("Camera is blocked here. Open the page directly in Safari or Chrome (over https), not inside another app.");
+    return;
+  }
   try {
     setStatus("Turning on camera...");
     await getCamera();
   } catch(err){
-    setStatus("Camera/mic permission is needed to practice.");
+    const n = err && err.name;
+    let m = "Camera/mic permission is needed to practice.";
+    if(n === "NotAllowedError") m = "Camera was blocked. On iOS tap the “aA” in the address bar → Website Settings → allow Camera & Microphone, then reload.";
+    else if(n === "NotFoundError" || n === "OverconstrainedError") m = "No camera or mic found on this device.";
+    else if(n === "NotReadableError") m = "Your camera is in use by another app. Close it and try again.";
+    else if(n) m = "Camera error (" + n + "). Make sure you're on https in Safari or Chrome.";
+    setStatus(m);
     return;
   }
   active = true;
