@@ -187,9 +187,13 @@ function applyPrompt(kind, value){
 // Generate locally, show it, and broadcast to the partner so both screens match.
 function generatePrompt(kind){
   const value = kind === "relationship" ? pick(RELATIONSHIPS) : pick(LOCATIONS);
-  applyPrompt(kind, value);
   if(ws && ws.readyState === 1 && matched){
+    // Route through the server. The server echoes it to BOTH partners, so we apply it
+    // only when it comes back. Both screens then update in the same order and stay in
+    // sync even if both people tap at once.
     ws.send(JSON.stringify({ t:"prompt", kind, value }));
+  } else {
+    applyPrompt(kind, value);   // solo / not matched yet: just show it locally
   }
 }
 
