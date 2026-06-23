@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Improv Roulette</title>
+<style>
+  :root { --bg:#0f1117; --panel:#181b24; --line:#262a36; --accent:#e0734a; --text:#e9e7e2; --muted:#8b8f9c; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif; background:var(--bg);
+         color:var(--text); min-height:100vh; display:flex; flex-direction:column; }
+  header { padding:18px 22px; border-bottom:1px solid var(--line); display:flex; align-items:baseline; gap:12px; }
+  header h1 { font-size:18px; letter-spacing:0.5px; }
+  header h1 b { color:var(--accent); }
+  header .tag { color:var(--muted); font-size:12px; }
+  .wrap { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:22px; gap:18px; }
+  .videos { display:grid; grid-template-columns:1fr 1fr; gap:14px; width:100%; max-width:920px; }
+  @media (max-width:640px){ .videos { grid-template-columns:1fr; } }
+  .vbox { position:relative; aspect-ratio:4/3; background:#000; border:1px solid var(--line);
+          border-radius:12px; overflow:hidden; }
+  .vbox video { width:100%; height:100%; object-fit:cover; background:#000; }
+  .vbox .label { position:absolute; left:10px; bottom:8px; font-size:11px; letter-spacing:1px;
+                 text-transform:uppercase; color:#fff; background:rgba(0,0,0,.45); padding:3px 8px; border-radius:6px; }
+  .vbox.waiting::after { content:attr(data-msg); position:absolute; inset:0; display:flex; align-items:center;
+                 justify-content:center; color:var(--muted); font-size:14px; text-align:center; padding:20px; }
+  .controls { display:flex; gap:10px; align-items:center; }
+  button { font:inherit; font-size:15px; font-weight:600; border:none; border-radius:10px; padding:12px 22px;
+           cursor:pointer; color:#fff; background:var(--accent); transition:opacity .15s; }
+  button.secondary { background:var(--panel); border:1px solid var(--line); color:var(--text); }
+  button:disabled { opacity:.4; cursor:default; }
+  .status { color:var(--muted); font-size:13px; min-height:18px; text-align:center; }
+  .status b { color:var(--text); }
+  footer { padding:12px 22px; border-top:1px solid var(--line); color:var(--muted); font-size:11px; text-align:center; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Improv <b>Roulette</b></h1>
+    <span class="tag">practice with a random partner</span>
+  </header>
+
+  <div class="wrap">
+    <div class="videos">
+      <div class="vbox"><video id="localVideo" autoplay playsinline muted></video><span class="label">You</span></div>
+      <div class="vbox waiting" id="remoteBox" data-msg="No partner yet"><video id="remoteVideo" autoplay playsinline></video><span class="label">Partner</span></div>
+    </div>
+
+    <div class="status" id="status">Tap Start to turn on your camera.</div>
+
+    <div class="controls">
+      <button id="startBtn">Start</button>
+      <button id="nextBtn" class="secondary" disabled>Next partner</button>
+      <button id="stopBtn" class="secondary" disabled>Stop</button>
+    </div>
+  </div>
+
+  <footer>Peer-to-peer video over WebRTC. Your camera streams directly to your partner, not through any server.</footer>
+
+<script>
+// ---- Config -------------------------------------------------------------
+// Local testing uses the Node server (server/server.js) on :8787.
+// In production, point this at your deployed Cloudflare Worker URL.
+const WORKER_URL = "wss://improv-roulette.mattfracek.workers.dev";  // deployed signaling Worker
+const isLocal = ["localhost","127.0.0.1"].includes(location.hostname);
+const SIGNAL_URL = isLocal ? "ws://localhost:8787" : WORKER_URL;
+
+// Optional: only open at a set time (e.g. 7pm). Off by default for testing.
+const OPEN_WINDOW = { enabled:false, startHour:19, endHour:23 };
+
+const ICE = { iceServers:[{ urls:"stun:stun.l.google.com:19302" }] };
+// ------------------------------------------------------------------------
+
+const els = {
+  start: document.getElementById("startBtn"),
+  next: document.getElementById("nextBtn"),
+  stop: document.getElementById("stopBtn"),
+  status: document.getElementById("status"),
+  local: document.getElementById("localVideo"),
+  remote: document.getElementById("remoteVideo"),
+  remoteBox: document.getElementById("remoteBox"),
+};
+
+let localStream = null;
+let ws = null;
+let pc = null;
+let active = false;     // user wants to be matched
+let matched = false;
+
+function setStatus(html){ els.status.innerHTML = html; }
+function setRemoteMsg(msg){ els.remoteBox.dataset.msg = msg; els.remoteBox.classList.add("waiting"); }
+function clearRemoteMsg(){ els.remoteBox.classList.remove("waiting"); }
+
+function withinOpenWindow(){
+  if(!OPEN_WINDOW.enabled) return true;
+  const h = new Date().getHours();
+  return h >= OPEN_WINDOW.startHour && h < OPEN_WINDOW.endHour;
+}
+
+async function getCamera(){
+  if(localStream) return localStream;
+  localStream = await navigator.mediaDevices.getUserMedia({ video:true, audio:true });
+  els.local.srcObject = localStream;
+  return localStream;
+}
+
+function connectSignal(){
+  ws = new WebSocket(SIGNAL_URL);
+  ws.onopen = () => { if(active) ws.send(JSON.stringify({ t:"join" })); };
+  ws.onmessage = (e) => handleSignal(JSON.parse(e.data));
+  ws.onclose = () => {
+    if(active){ setStatus("Reconnecting..."); setTimeout(connectSignal, 1500); }
+  };
+  ws.onerror = () => setStatus("Could not reach the matchmaking server. Is it running?");
+}
+
+async function handleSignal(msg){
+  if(msg.t === "waiting"){
+    matched = false;
+    setRemoteMsg("Looking for a partner...");
+    setStatus("Waiting for someone to join...");
+  }
+  else if(msg.t === "matched"){
+    matched = true;
+    clearRemoteMsg();
+    setStatus("Connected. <b>Go.</b>");
+    await startPeer(msg.initiator);
+  }
+  else if(msg.t === "sig"){
+    await onRemoteSignal(msg);
+  }
+  else if(msg.t === "left"){
+    setStatus("Partner left. Finding a new one...");
+    teardownPeer();
+    if(active) ws.send(JSON.stringify({ t:"join" }));
+  }
+}
+
+async function startPeer(initiator){
+  teardownPeer();
+  pc = new RTCPeerConnection(ICE);
+  localStream.getTracks().forEach(tr => pc.addTrack(tr, localStream));
+
+  pc.ontrack = (e) => { els.remote.srcObject = e.streams[0]; };
+  pc.onicecandidate = (e) => {
+    if(e.candidate) ws.send(JSON.stringify({ t:"sig", candidate:e.candidate }));
+  };
+  pc.onconnectionstatechange = () => {
+    if(["failed","disconnected","closed"].includes(pc.connectionState) && active && matched){
+      setStatus("Connection dropped. Finding a new partner...");
+      teardownPeer();
+      ws.send(JSON.stringify({ t:"next" }));
+    }
+  };
+
+  if(initiator){
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    ws.send(JSON.stringify({ t:"sig", sdp:pc.localDescription }));
+  }
+}
+
+async function onRemoteSignal(msg){
+  if(!pc) return;
+  if(msg.sdp){
+    await pc.setRemoteDescription(msg.sdp);
+    if(msg.sdp.type === "offer"){
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      ws.send(JSON.stringify({ t:"sig", sdp:pc.localDescription }));
+    }
+  } else if(msg.candidate){
+    try { await pc.addIceCandidate(msg.candidate); } catch(err){ /* ignore late candidates */ }
+  }
+}
+
+function teardownPeer(){
+  matched = false;
+  if(pc){ pc.ontrack = pc.onicecandidate = pc.onconnectionstatechange = null; pc.close(); pc = null; }
+  els.remote.srcObject = null;
+}
+
+// ---- Buttons ------------------------------------------------------------
+els.start.onclick = async () => {
+  if(!withinOpenWindow()){
+    setStatus(`The room opens at ${OPEN_WINDOW.startHour}:00. Come back then.`);
+    return;
+  }
+  try {
+    setStatus("Turning on camera...");
+    await getCamera();
+  } catch(err){
+    setStatus("Camera/mic permission is needed to practice.");
+    return;
+  }
+  active = true;
+  els.start.disabled = true;
+  els.next.disabled = false;
+  els.stop.disabled = false;
+  setStatus("Joining the room...");
+  connectSignal();
+  if(ws && ws.readyState === 1) ws.send(JSON.stringify({ t:"join" }));
+};
+
+els.next.onclick = () => {
+  if(!active || !ws || ws.readyState !== 1) return;
+  teardownPeer();
+  setRemoteMsg("Finding a new partner...");
+  setStatus("Finding a new partner...");
+  ws.send(JSON.stringify({ t:"next" }));
+};
+
+els.stop.onclick = () => {
+  active = false;
+  teardownPeer();
+  if(ws){ ws.close(); ws = null; }
+  els.start.disabled = false;
+  els.next.disabled = true;
+  els.stop.disabled = true;
+  setRemoteMsg("No partner yet");
+  setStatus("Stopped. Tap Start to jump back in.");
+};
+
+window.addEventListener("beforeunload", () => { if(ws) ws.close(); });
+</script>
+</body>
+</html>
