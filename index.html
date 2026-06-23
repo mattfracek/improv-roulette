@@ -13,8 +13,10 @@
   header h1 { font-size:18px; letter-spacing:0.5px; }
   header h1 b { color:var(--accent); }
   header .tag { color:var(--muted); font-size:12px; }
+  header .online { margin-left:auto; color:var(--muted); font-size:12px; display:flex; align-items:center; gap:7px; white-space:nowrap; }
+  header .online .dot { width:8px; height:8px; border-radius:50%; background:#4ade80; box-shadow:0 0 6px #4ade8088; }
   .wrap { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:22px; gap:18px; }
-  .videos { display:grid; grid-template-columns:1fr 1fr; gap:14px; width:100%; max-width:920px; }
+  .videos { display:grid; grid-template-columns:1fr 1fr; gap:16px; width:100%; max-width:1240px; }
   @media (max-width:640px){ .videos { grid-template-columns:1fr; } }
   .vbox { position:relative; aspect-ratio:4/3; background:#000; border:1px solid var(--line);
           border-radius:12px; overflow:hidden; }
@@ -30,6 +32,20 @@
   button:disabled { opacity:.4; cursor:default; }
   .status { color:var(--muted); font-size:13px; min-height:18px; text-align:center; }
   .status b { color:var(--text); }
+  /* scene-setup bar (shared between both partners) */
+  .scene { width:100%; max-width:1240px; background:var(--panel); border:1px solid var(--line);
+           border-radius:12px; padding:16px 18px; display:flex; flex-direction:column; gap:14px; }
+  .scene-fields { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  @media (max-width:640px){ .scene-fields { grid-template-columns:1fr; } }
+  .pfield { background:var(--bg); border:1px solid var(--line); border-radius:10px; padding:11px 14px; }
+  .plabel { font-size:10px; letter-spacing:1.5px; text-transform:uppercase; color:var(--muted); margin-bottom:5px; }
+  .pvalue { font-size:19px; font-weight:600; color:var(--text); min-height:24px; }
+  .pvalue.empty { color:var(--muted); font-weight:400; font-size:15px; }
+  .pvalue.pop { animation:pop .3s ease; }
+  @keyframes pop { 0%{ transform:scale(.96); opacity:.4; } 100%{ transform:scale(1); opacity:1; } }
+  .scene-buttons { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+  .scene-buttons button { background:var(--bg); border:1px solid var(--line); color:var(--text); font-size:14px; }
+  .scene-buttons button .ic { color:var(--accent); margin-right:6px; }
   footer { padding:12px 22px; border-top:1px solid var(--line); color:var(--muted); font-size:11px; text-align:center; }
 </style>
 </head>
@@ -37,6 +53,7 @@
   <header>
     <h1>Improv <b>Roulette</b></h1>
     <span class="tag">practice with a random partner</span>
+    <span class="online" id="online"><span class="dot"></span>connecting...</span>
   </header>
 
   <div class="wrap">
@@ -51,6 +68,23 @@
       <button id="startBtn">Start</button>
       <button id="nextBtn" class="secondary" disabled>Next partner</button>
       <button id="stopBtn" class="secondary" disabled>Stop</button>
+    </div>
+
+    <div class="scene">
+      <div class="scene-fields">
+        <div class="pfield">
+          <div class="plabel">Relationship</div>
+          <div class="pvalue empty" id="relValue">Tap below to generate</div>
+        </div>
+        <div class="pfield">
+          <div class="plabel">Location</div>
+          <div class="pvalue empty" id="locValue">Tap below to generate</div>
+        </div>
+      </div>
+      <div class="scene-buttons">
+        <button id="genRel"><span class="ic">&#9861;</span>Generate Relationship</button>
+        <button id="genLoc"><span class="ic">&#9861;</span>Generate Location</button>
+      </div>
     </div>
   </div>
 
@@ -78,7 +112,61 @@ const els = {
   local: document.getElementById("localVideo"),
   remote: document.getElementById("remoteVideo"),
   remoteBox: document.getElementById("remoteBox"),
+  relValue: document.getElementById("relValue"),
+  locValue: document.getElementById("locValue"),
+  genRel: document.getElementById("genRel"),
+  genLoc: document.getElementById("genLoc"),
+  online: document.getElementById("online"),
 };
+
+// ---- Scene prompt pools -------------------------------------------------
+const RELATIONSHIPS = [
+  "Estranged siblings","Old college roommates","Boss and employee","First date","Doctor and patient",
+  "Long-married couple","Teacher and student","Coach and athlete","Detective and suspect","Parent and teenager",
+  "Exes running into each other","Best friends since childhood","Customer and barista","Landlord and tenant",
+  "Rival coworkers","Therapist and client","Tour guide and tourist","Mentor and protege","Neighbors in a feud",
+  "Bandmates","In-laws meeting for the first time","Pilot and co-pilot","Cellmates","Captain and first mate",
+  "Bride and wedding planner","Drill sergeant and recruit","Fan and celebrity","Twins","Babysitter and kid",
+  "Two strangers stuck in an elevator","Roommates","Father and son","Mother and daughter","Newlyweds",
+  "Hostage and negotiator","Witness and lawyer","Chef and food critic","Grandparent and grandchild",
+  "Co-stars who secretly hate each other","Getaway driver and robber","Ghost and the new homeowner","Sponsor and sponsee",
+];
+const LOCATIONS = [
+  "A sinking ship","The DMV","A haunted house","A spaceship","A grocery store at 3am","A wedding reception",
+  "A dentist's office","A campsite in a storm","A bank during a robbery","A retirement home","A submarine",
+  "A fast-food drive-thru","Backstage at a concert","A courtroom","A ski lift stuck mid-air","A farmers market",
+  "An operating room","A haunted carnival","A penthouse party","A desert island","A locker room after a loss",
+  "A first-class cabin","A monastery","A pet store","A hot air balloon","The principal's office","A late-night diner",
+  "A film set","A cave","An art gallery opening","A waiting room","A fishing boat","A treehouse","A laundromat",
+  "A medieval castle","A border checkpoint","A rooftop garden","A cruise ship buffet","A planetarium",
+  "A small-town parade","An elevator between floors","A roadside motel",
+];
+
+function pick(arr){ return arr[Math.floor(Math.random() * arr.length)]; }
+
+// Apply a generated prompt to the shared bar (called locally and on remote sync).
+function applyPrompt(kind, value){
+  const el = kind === "relationship" ? els.relValue : els.locValue;
+  el.textContent = value;
+  el.classList.remove("empty");
+  el.classList.remove("pop"); void el.offsetWidth; el.classList.add("pop");
+}
+
+// Generate locally, show it, and broadcast to the partner so both screens match.
+function generatePrompt(kind){
+  const value = kind === "relationship" ? pick(RELATIONSHIPS) : pick(LOCATIONS);
+  applyPrompt(kind, value);
+  if(ws && ws.readyState === 1 && matched){
+    ws.send(JSON.stringify({ t:"prompt", kind, value }));
+  }
+}
+
+function resetPrompts(){
+  [els.relValue, els.locValue].forEach(el => {
+    el.textContent = "Tap below to generate";
+    el.classList.add("empty"); el.classList.remove("pop");
+  });
+}
 
 let localStream = null;
 let ws = null;
@@ -103,14 +191,17 @@ async function getCamera(){
   return localStream;
 }
 
+let closing = false;
 function connectSignal(){
   ws = new WebSocket(SIGNAL_URL);
   ws.onopen = () => { if(active) ws.send(JSON.stringify({ t:"join" })); };
   ws.onmessage = (e) => handleSignal(JSON.parse(e.data));
   ws.onclose = () => {
-    if(active){ setStatus("Reconnecting..."); setTimeout(connectSignal, 1500); }
+    els.online.textContent = "reconnecting...";
+    if(active) setStatus("Reconnecting...");
+    if(!closing) setTimeout(connectSignal, 1500);   // stay connected for the live counter
   };
-  ws.onerror = () => setStatus("Could not reach the matchmaking server. Is it running?");
+  ws.onerror = () => { if(active) setStatus("Could not reach the matchmaking server."); };
 }
 
 async function handleSignal(msg){
@@ -122,17 +213,29 @@ async function handleSignal(msg){
   else if(msg.t === "matched"){
     matched = true;
     clearRemoteMsg();
+    resetPrompts();
     setStatus("Connected. <b>Go.</b>");
     await startPeer(msg.initiator);
   }
   else if(msg.t === "sig"){
     await onRemoteSignal(msg);
   }
+  else if(msg.t === "prompt"){
+    applyPrompt(msg.kind, msg.value);
+  }
+  else if(msg.t === "online"){
+    setOnline(msg.count);
+  }
   else if(msg.t === "left"){
     setStatus("Partner left. Finding a new one...");
     teardownPeer();
     if(active) ws.send(JSON.stringify({ t:"join" }));
   }
+}
+
+function setOnline(n){
+  if(typeof n !== "number") return;
+  els.online.textContent = n + (n === 1 ? " person online" : " people online");
 }
 
 async function startPeer(initiator){
@@ -197,8 +300,8 @@ els.start.onclick = async () => {
   els.next.disabled = false;
   els.stop.disabled = false;
   setStatus("Joining the room...");
-  connectSignal();
   if(ws && ws.readyState === 1) ws.send(JSON.stringify({ t:"join" }));
+  else connectSignal();   // onopen sends join because active is true
 };
 
 els.next.onclick = () => {
@@ -212,15 +315,24 @@ els.next.onclick = () => {
 els.stop.onclick = () => {
   active = false;
   teardownPeer();
-  if(ws){ ws.close(); ws = null; }
+  // Leave the queue/scene but keep the socket open so the online counter stays live.
+  if(ws && ws.readyState === 1) ws.send(JSON.stringify({ t:"leave" }));
   els.start.disabled = false;
   els.next.disabled = true;
   els.stop.disabled = true;
+  resetPrompts();
   setRemoteMsg("No partner yet");
   setStatus("Stopped. Tap Start to jump back in.");
 };
 
-window.addEventListener("beforeunload", () => { if(ws) ws.close(); });
+els.genRel.onclick = () => generatePrompt("relationship");
+els.genLoc.onclick = () => generatePrompt("location");
+
+// Connect on page load so the online counter shows before you hit Start.
+// We only send "join" (enter the matchmaking queue) when Start is pressed.
+connectSignal();
+
+window.addEventListener("beforeunload", () => { closing = true; if(ws) ws.close(); });
 </script>
 </body>
 </html>
