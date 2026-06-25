@@ -33,8 +33,22 @@
   header h1 { font-size:18px; letter-spacing:0.5px; }
   header h1 b { color:var(--accent); }
   header .tag { color:var(--muted); font-size:12px; }
-  header .online { margin-left:auto; color:var(--muted); font-size:12px; display:flex; align-items:center; gap:7px; white-space:nowrap; }
+  header .online { color:var(--muted); font-size:12px; display:flex; align-items:center; gap:7px; white-space:nowrap; }
   header .online .dot { width:8px; height:8px; border-radius:50%; background:#4ade80; box-shadow:0 0 6px #4ade8088; }
+  header .bell { margin-left:auto; background:none; border:none; color:var(--muted); font-size:18px; cursor:pointer; padding:4px 10px 4px 4px; line-height:1; }
+  header .bell:hover { color:var(--text); }
+  /* notifications modal */
+  .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; z-index:80; padding:20px; }
+  .modal { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:22px; max-width:440px; width:100%; }
+  .modal-title { font-size:18px; font-weight:700; margin-bottom:4px; }
+  .modal-sub { color:var(--muted); font-size:13px; line-height:1.5; margin-bottom:16px; }
+  .opt { display:flex; gap:11px; align-items:flex-start; padding:12px; border:1px solid var(--line); border-radius:10px; margin-bottom:10px; cursor:pointer; }
+  .opt input { margin-top:3px; width:18px; height:18px; accent-color:var(--accent); flex:none; }
+  .opt span { font-size:14px; line-height:1.4; }
+  .opt span small { color:var(--muted); font-size:12px; }
+  .modal-actions { display:flex; gap:10px; margin-top:6px; }
+  .modal-actions button { flex:1; }
+  .modal-note { margin-top:12px; font-size:12.5px; color:var(--accent); min-height:16px; text-align:center; }
   .banner { background:#1b1e27; border-bottom:1px solid var(--line); color:var(--muted);
             font-size:13px; text-align:center; padding:9px 18px; line-height:1.4; }
   .banner b { color:var(--accent); }
@@ -85,6 +99,7 @@
   <header>
     <h1>Improv <b>Roulette</b></h1>
     <span class="tag">practice with a random partner</span>
+    <button class="bell" id="bellBtn" aria-label="Notifications">&#128276;</button>
     <span class="online" id="online"><span class="dot"></span>connecting...</span>
   </header>
 
@@ -119,6 +134,26 @@
         <button id="genRel"><span class="ic">&#9861;</span>Generate Relationship</button>
         <button id="genLoc"><span class="ic">&#9861;</span>Generate Location</button>
       </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="notifModal">
+    <div class="modal">
+      <div class="modal-title">Notifications</div>
+      <div class="modal-sub" id="notifHint">Get a heads-up when people are around to jam.</div>
+      <label class="opt">
+        <input type="checkbox" id="optNightly">
+        <span><b>Nightly 7 PM reminder</b><br><small>One ping a day when the jam window opens.</small></span>
+      </label>
+      <label class="opt">
+        <input type="checkbox" id="optEvery">
+        <span><b>Every time someone's waiting</b><br><small>Get pinged whenever a partner is looking (at most once every 10 min).</small></span>
+      </label>
+      <div class="modal-actions">
+        <button id="notifSave">Save</button>
+        <button id="notifClose" class="secondary">Close</button>
+      </div>
+      <div class="modal-note" id="notifStatus"></div>
     </div>
   </div>
 
@@ -396,6 +431,83 @@ function toggleExpand(box, video){
 }
 els.localBox.addEventListener("click", () => toggleExpand(els.localBox, els.local));
 els.remoteBox.addEventListener("click", () => toggleExpand(els.remoteBox, els.remote));
+
+// ---- Notifications ------------------------------------------------------
+const VAPID_PUBLIC_KEY = "BOxArXwRbvdUv0s9FEN-kl0QUglpNyLaNvELZSbnNCO6YZ6LHaAvfsqck1GQA2PJPtOTyUU-rm9xdUxIziRqoJ0";
+const PUSH_API = isLocal ? "http://localhost:8787" : "https://improv-roulette.mattfracek.workers.dev";
+const pushSupported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+const isiOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+function isStandalone(){ return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true; }
+function urlB64ToUint8(b64){
+  const pad = "=".repeat((4 - b64.length % 4) % 4);
+  const s = (b64 + pad).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(s); const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+
+const notif = {
+  modal: document.getElementById("notifModal"),
+  hint: document.getElementById("notifHint"),
+  status: document.getElementById("notifStatus"),
+  nightly: document.getElementById("optNightly"),
+  every: document.getElementById("optEvery"),
+};
+
+async function openNotif(){
+  notif.status.textContent = "";
+  if(!pushSupported){
+    notif.hint.textContent = "This browser doesn't support notifications. Try Safari or Chrome.";
+  } else if(isiOS && !isStandalone()){
+    notif.hint.innerHTML = "On iPhone, first add this to your Home Screen (Share &rarr; Add to Home Screen), then open it from there to turn on notifications.";
+  } else {
+    notif.hint.textContent = "Get a heads-up when people are around to jam.";
+  }
+  const prefs = JSON.parse(localStorage.getItem("notif-prefs") || "{}");
+  notif.nightly.checked = !!prefs.nightly;
+  notif.every.checked = !!prefs.everyTime;
+  notif.modal.style.display = "flex";
+}
+function closeNotif(){ notif.modal.style.display = "none"; }
+
+async function saveNotif(){
+  const prefs = { nightly: notif.nightly.checked, everyTime: notif.every.checked };
+  if(!pushSupported){ notif.status.textContent = "Notifications aren't supported here."; return; }
+  if(isiOS && !isStandalone()){ notif.status.textContent = "Add to Home Screen first, then enable from there."; return; }
+
+  const reg = await navigator.serviceWorker.ready;
+
+  // Both off = turn notifications off
+  if(!prefs.nightly && !prefs.everyTime){
+    const sub = await reg.pushManager.getSubscription();
+    if(sub){
+      try { await fetch(PUSH_API + "/unsubscribe", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ endpoint: sub.endpoint }) }); } catch(_){}
+      await sub.unsubscribe();
+    }
+    localStorage.setItem("notif-prefs", JSON.stringify(prefs));
+    notif.status.textContent = "Notifications are off.";
+    return;
+  }
+
+  let perm = Notification.permission;
+  if(perm === "default") perm = await Notification.requestPermission();
+  if(perm !== "granted"){ notif.status.textContent = "Permission was blocked. Turn it on in your browser settings."; return; }
+
+  let sub = await reg.pushManager.getSubscription();
+  if(!sub){
+    sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8(VAPID_PUBLIC_KEY) });
+  }
+  try {
+    const res = await fetch(PUSH_API + "/subscribe", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ subscription: sub.toJSON(), prefs }) });
+    notif.status.textContent = res.ok ? "Saved! You're all set." : "Couldn't save, try again.";
+  } catch(_){ notif.status.textContent = "Network error, try again."; }
+  localStorage.setItem("notif-prefs", JSON.stringify(prefs));
+}
+
+document.getElementById("bellBtn").onclick = openNotif;
+document.getElementById("notifSave").onclick = saveNotif;
+document.getElementById("notifClose").onclick = closeNotif;
+notif.modal.addEventListener("click", (e) => { if(e.target === notif.modal) closeNotif(); });
 
 // Register the service worker (needed for installability + web push later).
 if ("serviceWorker" in navigator) {
