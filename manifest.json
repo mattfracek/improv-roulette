@@ -1,0 +1,15 @@
+{
+  "name": "Improv Practice",
+  "short_name": "Improv",
+  "description": "Practice improv with a random partner. Hop on, get paired on webcam, and run a scene.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f1117",
+  "theme_color": "#0f1117",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

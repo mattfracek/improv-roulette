@@ -17,6 +17,13 @@
 <meta name="twitter:title" content="Improv Practice">
 <meta name="twitter:description" content="Practice improv with a random partner. Hop on, get paired on webcam, and run a scene.">
 <meta name="twitter:image" content="https://improvpractice.com/og.png">
+<!-- PWA / installable app -->
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0f1117">
+<link rel="apple-touch-icon" href="/apple-touch-icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Improv">
 <style>
   :root { --bg:#0f1117; --panel:#181b24; --line:#262a36; --accent:#e0734a; --text:#e9e7e2; --muted:#8b8f9c; }
   * { box-sizing:border-box; margin:0; padding:0; }
@@ -389,6 +396,11 @@ function toggleExpand(box, video){
 }
 els.localBox.addEventListener("click", () => toggleExpand(els.localBox, els.local));
 els.remoteBox.addEventListener("click", () => toggleExpand(els.remoteBox, els.remote));
+
+// Register the service worker (needed for installability + web push later).
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/sw.js").catch(() => {});
+}
 
 // Connect on page load so the online counter shows before you hit Start.
 // We only send "join" (enter the matchmaking queue) when Start is pressed.
