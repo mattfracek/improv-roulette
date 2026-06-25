@@ -42,6 +42,9 @@
   .modal { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:22px; max-width:440px; width:100%; }
   .modal-title { font-size:18px; font-weight:700; margin-bottom:4px; }
   .modal-sub { color:var(--muted); font-size:13px; line-height:1.5; margin-bottom:16px; }
+  .modal-sub b { color:var(--text); }
+  .install-steps { margin:10px 0 2px; padding-left:20px; }
+  .install-steps li { margin-bottom:7px; line-height:1.45; }
   .opt { display:flex; gap:11px; align-items:flex-start; padding:12px; border:1px solid var(--line); border-radius:10px; margin-bottom:10px; cursor:pointer; }
   .opt input { margin-top:3px; width:18px; height:18px; accent-color:var(--accent); flex:none; }
   .opt span { font-size:14px; line-height:1.4; }
@@ -459,7 +462,14 @@ async function openNotif(){
   if(!pushSupported){
     notif.hint.textContent = "This browser doesn't support notifications. Try Safari or Chrome.";
   } else if(isiOS && !isStandalone()){
-    notif.hint.innerHTML = "On iPhone, first add this to your Home Screen (Share &rarr; Add to Home Screen), then open it from there to turn on notifications.";
+    notif.hint.innerHTML =
+      "<b>To get notifications on iPhone, add this to your Home Screen first:</b>" +
+      "<ol class='install-steps'>" +
+        "<li>Tap the <b>Share</b> button (square with an up arrow) in Safari's bottom toolbar.</li>" +
+        "<li>Scroll down and tap <b>Add to Home Screen</b>, then <b>Add</b>.</li>" +
+        "<li>Open <b>Improv Practice</b> from your Home Screen (not Safari).</li>" +
+        "<li>Tap the &#128276; again and turn on the notifications below.</li>" +
+      "</ol>";
   } else {
     notif.hint.textContent = "Get a heads-up when people are around to jam.";
   }
