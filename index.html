@@ -119,6 +119,9 @@
   .mode-tab:active:not(:disabled) { transform:none; }
   .mode-tab.active { color:var(--ink); box-shadow:inset 0 -3px 0 var(--accent); }
   .mode-instr { font-size:12.5px; color:var(--muted); line-height:1.45; margin:4px 2px 2px; }
+  .solo-link { text-align:center; margin-top:-4px; }
+  .solo-link a { color:var(--accent); font-size:13px; font-weight:700; text-decoration:none; letter-spacing:.3px; }
+  .solo-link a:hover { text-decoration:underline; }
   footer { padding:14px 22px; border-top:2px solid var(--ink); color:var(--muted); font-size:11px; text-align:center; }
 </style>
 </head>
@@ -145,6 +148,8 @@
       <button id="nextBtn" class="secondary" disabled>Next partner</button>
       <button id="stopBtn" class="secondary" disabled>Stop</button>
     </div>
+
+    <div class="solo-link"><a href="/solo/">&#127917;&nbsp; No one around? Practice solo &rarr;</a></div>
 
     <div class="scene">
       <div class="mode-tabs" id="modeTabs"></div>
@@ -394,7 +399,7 @@ async function handleSignal(msg){
   if(msg.t === "waiting"){
     matched = false;
     setRemoteMsg("No one here yet — peak time is 7 PM CT");
-    setStatus("Nobody here right now.. we're brand new. The crowd shows up around <b>7 PM Central</b>. Stay on and you'll match the moment someone joins.");
+    setStatus("Nobody here right now.. we're brand new. The crowd shows up around <b>7 PM Central</b>. Stay on and you'll match the moment someone joins, or <a href='/solo/' style='color:var(--accent);font-weight:700'>practice solo while you wait &rarr;</a>");
   }
   else if(msg.t === "matched"){
     matched = true;
