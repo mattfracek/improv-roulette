@@ -111,6 +111,14 @@
   .scene-buttons { display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
   .scene-buttons button { background:var(--paper2); color:var(--ink); font-size:14px; }
   .scene-buttons button .ic { color:var(--accent); margin-right:6px; }
+  /* game-mode tabs */
+  .mode-tabs { display:flex; flex-wrap:wrap; gap:4px; border-bottom:2px solid var(--soft); padding-bottom:10px; margin-bottom:2px; }
+  .mode-tab { background:none; border:none; box-shadow:none; color:var(--muted); font-family:var(--font-body);
+              font-weight:700; font-size:12px; text-transform:uppercase; letter-spacing:.4px; padding:7px 10px; cursor:pointer; border-radius:4px; }
+  .mode-tab:hover { color:var(--ink); }
+  .mode-tab:active:not(:disabled) { transform:none; }
+  .mode-tab.active { color:var(--ink); box-shadow:inset 0 -3px 0 var(--accent); }
+  .mode-instr { font-size:12.5px; color:var(--muted); line-height:1.45; margin:4px 2px 2px; }
   footer { padding:14px 22px; border-top:2px solid var(--ink); color:var(--muted); font-size:11px; text-align:center; }
 </style>
 </head>
@@ -139,20 +147,10 @@
     </div>
 
     <div class="scene">
-      <div class="scene-fields">
-        <div class="pfield">
-          <div class="plabel">Relationship</div>
-          <div class="pvalue empty" id="relValue">Tap below to generate</div>
-        </div>
-        <div class="pfield">
-          <div class="plabel">Location</div>
-          <div class="pvalue empty" id="locValue">Tap below to generate</div>
-        </div>
-      </div>
-      <div class="scene-buttons">
-        <button id="genRel"><span class="ic">&#9861;</span>Generate Relationship</button>
-        <button id="genLoc"><span class="ic">&#9861;</span>Generate Location</button>
-      </div>
+      <div class="mode-tabs" id="modeTabs"></div>
+      <div class="mode-instr" id="modeInstr"></div>
+      <div class="scene-fields" id="modeFields"></div>
+      <div class="scene-buttons" id="modeButtons"></div>
     </div>
   </div>
 
@@ -207,11 +205,11 @@ const els = {
   remote: document.getElementById("remoteVideo"),
   remoteBox: document.getElementById("remoteBox"),
   localBox: document.getElementById("localBox"),
-  relValue: document.getElementById("relValue"),
-  locValue: document.getElementById("locValue"),
-  genRel: document.getElementById("genRel"),
-  genLoc: document.getElementById("genLoc"),
   online: document.getElementById("online"),
+  modeTabs: document.getElementById("modeTabs"),
+  modeInstr: document.getElementById("modeInstr"),
+  modeFields: document.getElementById("modeFields"),
+  modeButtons: document.getElementById("modeButtons"),
 };
 
 // ---- Scene prompt pools -------------------------------------------------
@@ -235,34 +233,125 @@ const LOCATIONS = [
   "A small-town parade","An elevator between floors","A roadside motel",
 ];
 
-function pick(arr){ return arr[Math.floor(Math.random() * arr.length)]; }
+const WORDS = [
+  "umbrella","lighthouse","banana","helicopter","tornado","mustache","volcano","robot","pickle","wizard",
+  "suitcase","trampoline","cactus","telescope","accordion","hamster","igloo","jellyfish","lawnmower","marshmallow",
+  "octopus","parachute","rollercoaster","submarine","unicorn","walrus","xylophone","zipper","anchor","chandelier",
+  "escalator","flamingo","harpoon","iceberg","lantern","meteor","noodle","ostrich","pretzel","raccoon",
+  "scarecrow","treehouse","wheelbarrow","anvil","blender","compass","doorknob","kazoo","sandcastle","snowglobe",
+  "spatula","tambourine","whistle","mirror","cannon","goldfish",
+];
+const THEMES = [
+  "things in a kitchen","things that are cold","ways to travel","things at the beach","things that fly",
+  "breakfast foods","things in a toolbox","things that are round","scary things","things in space",
+  "board games","things you plug in","things at a circus","types of weather","things that make noise",
+  "office supplies","things in a garden","things that are sticky","musical instruments","things in a hospital",
+  "things in a junk drawer","things that melt","winter activities","fast food chains","things that bounce",
+  "types of dances","things in a wallet","famous landmarks",
+];
+const SUGGESTIONS = [
+  "first day","reunion","lost keys","the audition","promotion","the breakup","haircut","leftovers","the lottery",
+  "detour","the interview","wrong number","garage sale","jury duty","blind date","the upgrade","return policy",
+  "group project","the in-laws","road trip","power outage","new neighbor","the diagnosis","stage fright",
+];
 
-// Apply a generated prompt to the shared bar (called locally and on remote sync).
+function pick(arr){ return arr[Math.floor(Math.random() * arr.length)]; }
+const POOLS = { relationship:RELATIONSHIPS, location:LOCATIONS, word:WORDS, theme:THEMES, suggestion:SUGGESTIONS, thrown:WORDS };
+function valueFor(kind){ const p = POOLS[kind]; return p ? pick(p) : ""; }
+
+// ---- Games / modes ------------------------------------------------------
+const MODES = {
+  scene: { label:"Scene",
+    instr:"Build a grounded world, then find the funny. Establish who you are and where you are, then play.",
+    fields:[{key:"relationship",label:"Relationship",ph:"—"},{key:"location",label:"Location",ph:"—"}],
+    buttons:[{label:"Generate Relationship",kind:"relationship"},{label:"Generate Location",kind:"location"}],
+    autogen:["relationship","location"] },
+  onewordstory: { label:"One-Word Story",
+    instr:"Tell a story together, one word each, back and forth. Don't plan.. keep it moving and see where it goes.",
+    fields:[{key:"word",label:"Start with",ph:"Tap below for a word"}],
+    buttons:[{label:"New starter word",kind:"word"}], autogen:["word"] },
+  wordassoc: { label:"Word Association",
+    instr:"One says the word, the other fires back the first word it sparks. Fast. No thinking, no judging.",
+    fields:[{key:"word",label:"First word",ph:"Tap below for a word"}],
+    buttons:[{label:"New word",kind:"word"}], autogen:["word"] },
+  theme: { label:"Theme Words",
+    instr:"Trade words that fit the theme, back and forth, until someone blanks. Then grab a new theme.",
+    fields:[{key:"theme",label:"Theme",ph:"Tap below for a theme"}],
+    buttons:[{label:"New theme",kind:"theme"}], autogen:["theme"] },
+  threeline: { label:"3-Line Scene",
+    instr:"Three lines, then stop. Initiate, respond, respond. Make every line count, then reset.",
+    fields:[{key:"suggestion",label:"Suggestion",ph:"Tap below for a suggestion"}],
+    buttons:[{label:"New suggestion",kind:"suggestion"}], autogen:["suggestion"] },
+  storywords: { label:"Story + Words",
+    instr:"One person tells a fictional story. The other taps Throw a Word, and the storyteller has to work it in.",
+    fields:[{key:"thrown",label:"Work this in",ph:"Tap Throw a Word"}],
+    buttons:[{label:"Throw a Word",kind:"thrown"}], autogen:[] },
+};
+const MODE_ORDER = ["scene","onewordstory","wordassoc","theme","threeline","storywords"];
+let currentMode = "scene";
+
+function renderMode(mode){
+  if(!MODES[mode]) return;
+  currentMode = mode;
+  const m = MODES[mode];
+  // tabs
+  els.modeTabs.innerHTML = "";
+  MODE_ORDER.forEach(id => {
+    const b = document.createElement("button");
+    b.className = "mode-tab" + (id===currentMode ? " active" : "");
+    b.textContent = MODES[id].label;
+    b.onclick = () => setMode(id);
+    els.modeTabs.appendChild(b);
+  });
+  els.modeInstr.textContent = m.instr;
+  // fields
+  els.modeFields.style.gridTemplateColumns = m.fields.length > 1 ? "1fr 1fr" : "1fr";
+  els.modeFields.innerHTML = "";
+  m.fields.forEach(f => {
+    const wrap = document.createElement("div"); wrap.className = "pfield";
+    const lab = document.createElement("div"); lab.className = "plabel"; lab.textContent = f.label;
+    const val = document.createElement("div"); val.className = "pvalue empty"; val.id = "val-"+f.key; val.textContent = f.ph;
+    wrap.appendChild(lab); wrap.appendChild(val); els.modeFields.appendChild(wrap);
+  });
+  // buttons
+  els.modeButtons.innerHTML = "";
+  m.buttons.forEach(btn => {
+    const b = document.createElement("button");
+    b.innerHTML = '<span class="ic">&#9861;</span>' + btn.label;
+    b.onclick = () => generate(btn.kind);
+    els.modeButtons.appendChild(b);
+  });
+}
+
+// Apply a generated value to its field (works for any kind in the current mode).
 function applyPrompt(kind, value){
-  const el = kind === "relationship" ? els.relValue : els.locValue;
+  const el = document.getElementById("val-"+kind);
+  if(!el) return;
   el.textContent = value;
   el.classList.remove("empty");
   el.classList.remove("pop"); void el.offsetWidth; el.classList.add("pop");
 }
 
-// Generate locally, show it, and broadcast to the partner so both screens match.
-function generatePrompt(kind){
-  const value = kind === "relationship" ? pick(RELATIONSHIPS) : pick(LOCATIONS);
+// Generate a value; route through the server so both partners stay in sync.
+function generate(kind){
+  const value = valueFor(kind);
   if(ws && ws.readyState === 1 && matched){
-    // Route through the server. The server echoes it to BOTH partners, so we apply it
-    // only when it comes back. Both screens then update in the same order and stay in
-    // sync even if both people tap at once.
-    ws.send(JSON.stringify({ t:"prompt", kind, value }));
+    ws.send(JSON.stringify({ t:"prompt", kind, value }));   // server echoes to both, ordered
   } else {
-    applyPrompt(kind, value);   // solo / not matched yet: just show it locally
+    applyPrompt(kind, value);   // solo: show locally
   }
 }
 
-function resetPrompts(){
-  [els.relValue, els.locValue].forEach(el => {
-    el.textContent = "Tap below to generate";
-    el.classList.add("empty"); el.classList.remove("pop");
-  });
+// Switch game mode (synced to both partners, with the opening values).
+function setMode(mode){
+  if(!MODES[mode]) return;
+  const inits = MODES[mode].autogen.map(k => ({ kind:k, value:valueFor(k) }));
+  if(ws && ws.readyState === 1 && matched){
+    ws.send(JSON.stringify({ t:"mode", mode, inits }));   // both render + apply in order
+  } else {
+    renderMode(mode);
+    inits.forEach(i => applyPrompt(i.kind, i.value));
+  }
 }
 
 let localStream = null;
@@ -310,21 +399,22 @@ async function handleSignal(msg){
   else if(msg.t === "matched"){
     matched = true;
     clearRemoteMsg();
-    resetPrompts();
+    renderMode("scene");
     setStatus("Connected. <b>Go.</b>");
     await startPeer(msg.initiator);
-    // One side (the initiator) auto-generates the opening scene and broadcasts it,
-    // so BOTH partners start from the exact same relationship + location.
-    if(msg.initiator){
-      generatePrompt("relationship");
-      generatePrompt("location");
-    }
+    // The initiator picks the opening mode (Scene) and broadcasts it with synced values,
+    // so both partners start in the same game with the same prompts.
+    if(msg.initiator) setMode("scene");
   }
   else if(msg.t === "sig"){
     await onRemoteSignal(msg);
   }
   else if(msg.t === "prompt"){
     applyPrompt(msg.kind, msg.value);
+  }
+  else if(msg.t === "mode"){
+    renderMode(msg.mode);
+    (msg.inits || []).forEach(i => applyPrompt(i.kind, i.value));
   }
   else if(msg.t === "online"){
     setOnline(msg.count);
@@ -439,8 +529,7 @@ els.stop.onclick = () => {
   setStatus("Stopped. Tap Start to jump back in.");
 };
 
-els.genRel.onclick = () => generatePrompt("relationship");
-els.genLoc.onclick = () => generatePrompt("location");
+renderMode("scene");   // initial game panel (tabs + Scene mode)
 
 // Tap a video to fill the screen; tap again to shrink. Only expands a live feed.
 function toggleExpand(box, video){
