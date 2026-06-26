@@ -122,7 +122,16 @@
   .solo-link { text-align:center; margin-top:-4px; }
   .solo-link a { color:var(--accent); font-size:13px; font-weight:700; text-decoration:none; letter-spacing:.3px; }
   .solo-link a:hover { text-decoration:underline; }
+  /* report / block */
+  button.danger { background:var(--accent); color:var(--paper); }
+  #reportBtn.danger { background:var(--paper2); color:var(--accent); border-color:var(--accent); }
+  .safety-actions { display:flex; flex-direction:column; gap:10px; margin-top:4px; }
+  .safety-actions button { width:100%; }
+  .modal-sub a { color:var(--accent); font-weight:700; }
+  .gate-rules { margin:10px 0; padding-left:18px; }
+  .gate-rules li { margin-bottom:6px; line-height:1.45; }
   footer { padding:14px 22px; border-top:2px solid var(--ink); color:var(--muted); font-size:11px; text-align:center; }
+  footer a { color:var(--muted); }
 </style>
 </head>
 <body>
@@ -147,6 +156,7 @@
       <button id="startBtn">Start</button>
       <button id="nextBtn" class="secondary" disabled>Next partner</button>
       <button id="stopBtn" class="secondary" disabled>Stop</button>
+      <button id="reportBtn" class="secondary danger" style="display:none">Report / Block</button>
     </div>
 
     <div class="solo-link"><a href="/solo/">&#127917;&nbsp; No one around? Practice solo &rarr;</a></div>
@@ -179,7 +189,36 @@
     </div>
   </div>
 
-  <footer>Peer-to-peer video over WebRTC. Your camera streams directly to your partner, not through any server.</footer>
+  <div class="modal-backdrop" id="gateModal">
+    <div class="modal">
+      <div class="modal-title">Welcome</div>
+      <div class="modal-sub">Improv Practice pairs you live on webcam with a random partner to run improv scenes and games. A few ground rules:
+        <ul class="gate-rules">
+          <li>Be kind and keep it fun.</li>
+          <li><b>Zero tolerance</b> for harassment, hate, nudity, or anything illegal. You can block or report anyone instantly, and offenders are removed.</li>
+          <li>You must be <b>18 or older</b> to use this.</li>
+        </ul>
+        By continuing you agree to our <a href="/terms/">Terms</a> and <a href="/privacy/">Privacy Policy</a>.</div>
+      <div class="modal-actions">
+        <button id="gateAgree">I'm 18+ and I agree</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="safetyModal">
+    <div class="modal">
+      <div class="modal-title">Report or Block</div>
+      <div class="modal-sub">If your partner is being inappropriate, abusive, or making you uncomfortable, you can block them so you never match again, or report them to us. We have zero tolerance for objectionable behavior.</div>
+      <div class="safety-actions">
+        <button id="blockBtn" class="danger">Block this person</button>
+        <button id="reportSendBtn" class="danger">Report &amp; block</button>
+        <button id="safetyCancel" class="secondary">Cancel</button>
+      </div>
+      <div class="modal-note" id="safetyNote"></div>
+    </div>
+  </div>
+
+  <footer>Peer-to-peer video over WebRTC. Your camera streams directly to your partner, not through any server. &nbsp;·&nbsp; <a href="/terms/" style="color:var(--muted)">Terms</a> &nbsp;·&nbsp; <a href="/privacy/" style="color:var(--muted)">Privacy</a></footer>
 
 <script>
 // Force HTTPS first. Camera/mic (getUserMedia) is blocked on insecure http,
@@ -199,6 +238,12 @@ const SIGNAL_URL = isLocal ? "ws://localhost:8787" : WORKER_URL;
 const OPEN_WINDOW = { enabled:false, startHour:19, endHour:23 };
 
 const ICE = { iceServers:[{ urls:"stun:stun.l.google.com:19302" }] };
+
+// Anonymous stable id so Block/Report persist without accounts.
+const MY_ID = (function(){ let v=localStorage.getItem("ipid"); if(!v){ v=(self.crypto&&crypto.randomUUID)?crypto.randomUUID():(Math.random().toString(36).slice(2)+Date.now().toString(36)); localStorage.setItem("ipid",v);} return v; })();
+let blocks = new Set(JSON.parse(localStorage.getItem("ipblocks")||"[]"));
+function saveBlocks(){ localStorage.setItem("ipblocks", JSON.stringify([...blocks])); }
+let currentPartnerId = null;
 // ------------------------------------------------------------------------
 
 const els = {
@@ -215,6 +260,7 @@ const els = {
   modeInstr: document.getElementById("modeInstr"),
   modeFields: document.getElementById("modeFields"),
   modeButtons: document.getElementById("modeButtons"),
+  report: document.getElementById("reportBtn"),
 };
 
 // ---- Scene prompt pools -------------------------------------------------
@@ -385,7 +431,7 @@ async function getCamera(){
 let closing = false;
 function connectSignal(){
   ws = new WebSocket(SIGNAL_URL);
-  ws.onopen = () => { if(active) ws.send(JSON.stringify({ t:"join" })); };
+  ws.onopen = () => { if(active) ws.send(JSON.stringify({ t:"join", id: MY_ID })); };
   ws.onmessage = (e) => handleSignal(JSON.parse(e.data));
   ws.onclose = () => {
     els.online.textContent = "reconnecting...";
@@ -402,10 +448,14 @@ async function handleSignal(msg){
     setStatus("Nobody here right now.. we're brand new. The crowd shows up around <b>7 PM Central</b>. Stay on and you'll match the moment someone joins, or <a href='/solo/' style='color:var(--accent);font-weight:700'>practice solo while you wait &rarr;</a>");
   }
   else if(msg.t === "matched"){
+    // If we've blocked this person, skip them immediately without connecting.
+    if(msg.partnerId && blocks.has(msg.partnerId)){ ws.send(JSON.stringify({ t:"next" })); return; }
+    currentPartnerId = msg.partnerId || null;
     matched = true;
     clearRemoteMsg();
     renderMode("scene");
     setStatus("Connected. <b>Go.</b>");
+    els.report.style.display = "";
     await startPeer(msg.initiator);
     // The initiator picks the opening mode (Scene) and broadcasts it with synced values,
     // so both partners start in the same game with the same prompts.
@@ -427,7 +477,7 @@ async function handleSignal(msg){
   else if(msg.t === "left"){
     setStatus("Partner left. Finding a new one...");
     teardownPeer();
-    if(active) ws.send(JSON.stringify({ t:"join" }));
+    if(active) ws.send(JSON.stringify({ t:"join", id: MY_ID }));
   }
 }
 
@@ -476,6 +526,8 @@ async function onRemoteSignal(msg){
 
 function teardownPeer(){
   matched = false;
+  currentPartnerId = null;
+  if(els.report) els.report.style.display = "none";
   if(pc){ pc.ontrack = pc.onicecandidate = pc.onconnectionstatechange = null; pc.close(); pc = null; }
   els.remote.srcObject = null;
   els.remoteBox.classList.remove("expanded");   // collapse if partner left while expanded
@@ -509,7 +561,7 @@ els.start.onclick = async () => {
   els.next.disabled = false;
   els.stop.disabled = false;
   setStatus("Joining the room...");
-  if(ws && ws.readyState === 1) ws.send(JSON.stringify({ t:"join" }));
+  if(ws && ws.readyState === 1) ws.send(JSON.stringify({ t:"join", id: MY_ID }));
   else connectSignal();   // onopen sends join because active is true
 };
 
@@ -634,6 +686,29 @@ document.getElementById("bellBtn").onclick = openNotif;
 document.getElementById("notifSave").onclick = saveNotif;
 document.getElementById("notifClose").onclick = closeNotif;
 notif.modal.addEventListener("click", (e) => { if(e.target === notif.modal) closeNotif(); });
+
+// ---- Report / Block -----------------------------------------------------
+const safetyModal = document.getElementById("safetyModal");
+function blockCurrent(){ if(currentPartnerId){ blocks.add(currentPartnerId); saveBlocks(); } }
+function skipCurrent(){
+  teardownPeer();
+  setRemoteMsg("Finding a new partner...");
+  setStatus("Finding a new partner...");
+  if(active && ws && ws.readyState === 1) ws.send(JSON.stringify({ t:"next" }));
+}
+els.report.onclick = () => { document.getElementById("safetyNote").textContent = ""; safetyModal.style.display = "flex"; };
+document.getElementById("safetyCancel").onclick = () => { safetyModal.style.display = "none"; };
+document.getElementById("blockBtn").onclick = () => { blockCurrent(); safetyModal.style.display = "none"; skipCurrent(); };
+document.getElementById("reportSendBtn").onclick = () => {
+  if(ws && ws.readyState === 1) ws.send(JSON.stringify({ t:"report", id:MY_ID, reportedId: currentPartnerId, reason:"user report" }));
+  blockCurrent(); safetyModal.style.display = "none"; skipCurrent();
+};
+safetyModal.addEventListener("click", (e) => { if(e.target === safetyModal) safetyModal.style.display = "none"; });
+
+// ---- First-launch agreement gate ----
+const gateModal = document.getElementById("gateModal");
+if(!localStorage.getItem("ip-agreed")) gateModal.style.display = "flex";
+document.getElementById("gateAgree").onclick = () => { localStorage.setItem("ip-agreed","1"); gateModal.style.display = "none"; };
 
 // Register the service worker (needed for installability + web push later).
 if ("serviceWorker" in navigator) {
