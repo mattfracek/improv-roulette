@@ -20,7 +20,7 @@
   --accent: #c0432b;
   --accent-dim: #c0432b22;
   --text: #2b2420;
-  --muted: #7c7060;
+  --muted: #6a5d44;
   --green: #3a5a40;
   --blue: #3f5a6b;
   --orange: #b5532a;
@@ -201,7 +201,7 @@ body::after { content:""; position:fixed; inset:0; pointer-events:none; z-index:
 .exercise-instructions {
   font-size: 16px;
   line-height: 1.6;
-  color: #c8c8d4;
+  color: var(--text);
   margin-bottom: 20px;
 }
 .exercise-purpose {
@@ -242,7 +242,7 @@ body::after { content:""; position:fixed; inset:0; pointer-events:none; z-index:
 }
 .prompt-btn {
   background: var(--orange);
-  color: #000;
+  color: #ece1cb;
   border: none;
   border-radius: 10px;
   padding: 10px 20px;
@@ -304,7 +304,7 @@ body::after { content:""; position:fixed; inset:0; pointer-events:none; z-index:
   font-weight: 600;
   cursor: pointer;
 }
-.timer-btn.start { background: var(--green); color: #000; }
+.timer-btn.start { background: var(--green); color: #ece1cb; }
 .timer-btn.stop { background: var(--accent); color: #fff; }
 .timer-btn.reset { background: var(--card); border: 1px solid var(--card-border); color: var(--text); }
 .timer-btn:active { opacity: 0.8; }
