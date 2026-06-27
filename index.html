@@ -609,18 +609,31 @@ const isiOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
 const isDesktop = !/android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent);
 function isStandalone(){ return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true; }
 // Native (Capacitor) push — the app's web view can't do Web Push, so use APNs via the plugin.
-const nativePush = (isNative && window.Capacitor && typeof window.Capacitor.registerPlugin === "function")
-  ? window.Capacitor.registerPlugin("PushNotifications") : null;
+const nativePush = (function(){
+  if(!(isNative && window.Capacitor)) return null;
+  if(window.Capacitor.Plugins && window.Capacitor.Plugins.PushNotifications) return window.Capacitor.Plugins.PushNotifications;
+  if(typeof window.Capacitor.registerPlugin === "function") return window.Capacitor.registerPlugin("PushNotifications");
+  return null;
+})();
 let nativeToken = null;
-let lastRegError = "";
-let _tokenWaiters = [];
-if(nativePush){
-  nativePush.addListener("registration", (t) => { nativeToken = t.value; _tokenWaiters.forEach(r => r(t.value)); _tokenWaiters = []; });
-  nativePush.addListener("registrationError", (e) => { lastRegError = (e && (e.error || e.message)) ? (e.error || e.message) : JSON.stringify(e); try { console.log("push reg error", lastRegError); } catch(_){} });
-}
-function awaitNativeToken(){
-  if(nativeToken) return Promise.resolve(nativeToken);
-  return new Promise((resolve) => { _tokenWaiters.push(resolve); setTimeout(() => resolve(nativeToken), 8000); });
+// Full step-by-step flow with on-screen status, and listeners are awaited+attached
+// right before register() so we never miss the token event.
+async function nativeSubscribe(setMsg){
+  return new Promise(async (resolve) => {
+    let done = false;
+    const finish = (v) => { if(!done){ done = true; resolve(v); } };
+    try {
+      await nativePush.addListener("registration", (t) => { nativeToken = t.value; setMsg("Got device token."); finish(t.value); });
+      await nativePush.addListener("registrationError", (e) => { const m = (e && (e.error || e.message)) || JSON.stringify(e); setMsg("Apple registration error: " + m); finish(null); });
+      setMsg("Checking permission...");
+      let perm = await nativePush.checkPermissions();
+      if(perm.receive !== "granted") perm = await nativePush.requestPermissions();
+      if(perm.receive !== "granted"){ setMsg("Permission denied. Turn it on in iOS Settings → Improv Practice → Notifications."); return finish(null); }
+      setMsg("Registering with Apple...");
+      await nativePush.register();
+      setTimeout(() => { if(!done){ setMsg("Timed out waiting for Apple's token (12s)."); finish(nativeToken); } }, 12000);
+    } catch(err){ setMsg("Push error: " + ((err && err.message) || err)); finish(null); }
+  });
 }
 function urlB64ToUint8(b64){
   const pad = "=".repeat((4 - b64.length % 4) % 4);
@@ -679,16 +692,13 @@ async function saveNotif(){
       notif.status.textContent = "Notifications are off.";
       return;
     }
-    let perm = await nativePush.checkPermissions();
-    if(perm.receive !== "granted") perm = await nativePush.requestPermissions();
-    if(perm.receive !== "granted"){ notif.status.textContent = "Permission was blocked. Enable it in iOS Settings → Improv Practice → Notifications."; return; }
-    await nativePush.register();
-    const token = await awaitNativeToken();
-    if(!token){ notif.status.textContent = lastRegError ? ("Couldn't register: " + lastRegError) : "Couldn't register for notifications, try again."; return; }
+    const token = await nativeSubscribe((m) => { notif.status.textContent = m; });
+    if(!token){ return; }   // nativeSubscribe already set a descriptive status
     try {
+      notif.status.textContent = "Saving...";
       const res = await fetch(PUSH_API + "/subscribe-native", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ token, platform:"ios", prefs }) });
-      notif.status.textContent = res.ok ? "Saved! You're all set." : "Couldn't save, try again.";
-    } catch(_){ notif.status.textContent = "Network error, try again."; }
+      notif.status.textContent = res.ok ? "Saved! You're all set." : ("Server rejected it (HTTP " + res.status + ")");
+    } catch(e){ notif.status.textContent = "Network error: " + ((e && e.message) || e); }
     localStorage.setItem("notif-prefs", JSON.stringify(prefs));
     return;
   }
