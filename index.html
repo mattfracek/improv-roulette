@@ -146,7 +146,7 @@
 
   <div class="wrap">
     <div class="videos">
-      <div class="vbox" id="localBox"><video id="localVideo" autoplay playsinline muted></video><span class="label">You</span><span class="exit-hint">Tap to exit</span></div>
+      <div class="vbox waiting" id="localBox" data-msg="Your camera's off.. tap Start to go live"><video id="localVideo" autoplay playsinline muted></video><span class="label">You</span><span class="exit-hint">Tap to exit</span></div>
       <div class="vbox waiting" id="remoteBox" data-msg="No partner yet"><video id="remoteVideo" autoplay playsinline></video><span class="label">Partner</span><span class="exit-hint">Tap to exit</span></div>
     </div>
 
@@ -449,6 +449,7 @@ async function getCamera(){
   if(localStream) return localStream;
   localStream = await navigator.mediaDevices.getUserMedia({ video:true, audio:true });
   els.local.srcObject = localStream;
+  els.localBox.classList.remove("waiting");   // camera on — hide the "tap Start" hint
   return localStream;
 }
 
@@ -603,6 +604,7 @@ els.stop.onclick = () => {
   // Fully release the camera + mic so the device light goes off (Start re-acquires next time).
   if(localStream){ localStream.getTracks().forEach(tr => tr.stop()); localStream = null; }
   els.local.srcObject = null;
+  els.localBox.classList.add("waiting");   // camera off — show the "tap Start" hint again
   // Leave the queue/scene but keep the socket open so the online counter stays live.
   if(ws && ws.readyState === 1) ws.send(JSON.stringify({ t:"leave" }));
   els.start.disabled = false;
