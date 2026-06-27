@@ -608,6 +608,18 @@ const pushSupported = "serviceWorker" in navigator && "PushManager" in window &&
 const isiOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
 const isDesktop = !/android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent);
 function isStandalone(){ return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true; }
+// Native (Capacitor) push — the app's web view can't do Web Push, so use APNs via the plugin.
+const nativePush = (isNative && window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.PushNotifications) ? window.Capacitor.Plugins.PushNotifications : null;
+let nativeToken = null;
+let _tokenWaiters = [];
+if(nativePush){
+  nativePush.addListener("registration", (t) => { nativeToken = t.value; _tokenWaiters.forEach(r => r(t.value)); _tokenWaiters = []; });
+  nativePush.addListener("registrationError", (e) => { try { console.log("push reg error", JSON.stringify(e)); } catch(_){} });
+}
+function awaitNativeToken(){
+  if(nativeToken) return Promise.resolve(nativeToken);
+  return new Promise((resolve) => { _tokenWaiters.push(resolve); setTimeout(() => resolve(nativeToken), 6000); });
+}
 function urlB64ToUint8(b64){
   const pad = "=".repeat((4 - b64.length % 4) % 4);
   const s = (b64 + pad).replace(/-/g, "+").replace(/_/g, "/");
@@ -626,7 +638,9 @@ const notif = {
 
 async function openNotif(){
   notif.status.textContent = "";
-  if(!pushSupported){
+  if(nativePush){
+    notif.hint.textContent = "Get a heads-up when someone's around to jam.";
+  } else if(!pushSupported){
     notif.hint.textContent = "This browser doesn't support notifications. Try Safari or Chrome.";
   } else if(isiOS && !isStandalone()){
     notif.hint.innerHTML =
@@ -654,6 +668,29 @@ function closeNotif(){ notif.modal.style.display = "none"; }
 
 async function saveNotif(){
   const prefs = { nightly: notif.nightly.checked, everyTime: notif.every.checked };
+
+  // Native app: register with APNs through the Capacitor plugin instead of Web Push.
+  if(nativePush){
+    if(!prefs.nightly && !prefs.everyTime){
+      if(nativeToken){ try { await fetch(PUSH_API + "/unsubscribe-native", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ token: nativeToken }) }); } catch(_){} }
+      localStorage.setItem("notif-prefs", JSON.stringify(prefs));
+      notif.status.textContent = "Notifications are off.";
+      return;
+    }
+    let perm = await nativePush.checkPermissions();
+    if(perm.receive !== "granted") perm = await nativePush.requestPermissions();
+    if(perm.receive !== "granted"){ notif.status.textContent = "Permission was blocked. Enable it in iOS Settings → Improv Practice → Notifications."; return; }
+    await nativePush.register();
+    const token = await awaitNativeToken();
+    if(!token){ notif.status.textContent = "Couldn't register for notifications, try again."; return; }
+    try {
+      const res = await fetch(PUSH_API + "/subscribe-native", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ token, platform:"ios", prefs }) });
+      notif.status.textContent = res.ok ? "Saved! You're all set." : "Couldn't save, try again.";
+    } catch(_){ notif.status.textContent = "Network error, try again."; }
+    localStorage.setItem("notif-prefs", JSON.stringify(prefs));
+    return;
+  }
+
   if(!pushSupported){ notif.status.textContent = "Notifications aren't supported here."; return; }
   if(isiOS && !isStandalone()){ notif.status.textContent = "Add to Home Screen first, then enable from there."; return; }
 
