@@ -469,7 +469,7 @@ async function handleSignal(msg){
   if(msg.t === "waiting"){
     matched = false;
     setRemoteMsg("No one here yet — peak time is 7 PM CT");
-    setStatus("Nobody here right now.. we're brand new. The crowd shows up around <b>7 PM Central</b>. Stay on and you'll match the moment someone joins, or <a href='/solo/index.html' style='color:var(--accent);font-weight:700'>practice solo while you wait &rarr;</a>");
+    setStatus("Looking for a partner.. you'll match the moment someone joins.");
   }
   else if(msg.t === "matched"){
     // If we've blocked this person, skip them immediately without connecting.
