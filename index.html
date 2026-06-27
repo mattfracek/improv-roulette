@@ -235,6 +235,29 @@ const isNative = typeof window.Capacitor !== "undefined";   // running inside th
 const isLocal = !isNative && ["localhost","127.0.0.1"].includes(location.hostname);
 const SIGNAL_URL = isLocal ? "ws://localhost:8787" : WORKER_URL;
 
+// ---- Self-hosted over-the-air updates (native app only) -----------------
+// The app checks our own server for a newer web bundle and applies it on next
+// launch. notifyAppReady() tells the plugin this bundle booted fine so it won't
+// auto-roll-back. If the check fails, the app just keeps its current bundle.
+(function setupOTA(){
+  if(!(isNative && window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.CapacitorUpdater)) return;
+  const Updater = window.Capacitor.Plugins.CapacitorUpdater;
+  Updater.notifyAppReady().catch(function(){});
+  (async function(){
+    try {
+      const manifest = await fetch("https://improvpractice.com/app-bundle/latest.json?ts=" + Date.now(), { cache:"no-store" }).then(function(r){ return r.json(); });
+      if(!manifest || !manifest.version || !manifest.url) return;
+      const cur = await Updater.current();
+      const curVer = (cur && cur.bundle && cur.bundle.version) || "builtin";
+      if(String(manifest.version) === String(curVer)) return;       // already on the latest
+      const list = await Updater.list();
+      const have = (list.bundles || []).find(function(b){ return String(b.version) === String(manifest.version); });
+      const id = have ? have.id : (await Updater.download({ url: manifest.url, version: String(manifest.version) })).id;
+      await Updater.set({ id });                                    // applies next time the app opens
+    } catch(e){ /* OTA check failed — keep running the current bundle */ }
+  })();
+})();
+
 // Optional: only open at a set time (e.g. 7pm). Off by default for testing.
 const OPEN_WINDOW = { enabled:false, startHour:19, endHour:23 };
 
