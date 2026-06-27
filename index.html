@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Improv Practice</title>
 <meta name="description" content="Practice improv with a random partner. Hop on, get paired on webcam, and run a scene.">
 <!-- Open Graph / link preview -->
@@ -42,7 +42,7 @@
   /* paper grain */
   body::after { content:""; position:fixed; inset:0; pointer-events:none; z-index:9999; opacity:.06; mix-blend-mode:multiply;
     background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
-  header { padding:18px 24px; border-bottom:2px solid var(--ink); display:flex; align-items:center; gap:12px; background:var(--paper); }
+  header { padding:18px 24px; padding-top:calc(18px + env(safe-area-inset-top,0px)); border-bottom:2px solid var(--ink); display:flex; align-items:center; gap:12px; background:var(--paper); }
   header h1 { font-family:var(--font-display); font-size:22px; letter-spacing:1px; text-transform:uppercase; font-weight:400; color:var(--ink); }
   header h1 b { color:var(--accent); font-weight:400; }
   header .tag { color:var(--muted); font-size:12px; }
@@ -130,7 +130,7 @@
   .modal-sub a { color:var(--accent); font-weight:700; }
   .gate-rules { margin:10px 0; padding-left:18px; }
   .gate-rules li { margin-bottom:6px; line-height:1.45; }
-  footer { padding:14px 22px; border-top:2px solid var(--ink); color:var(--muted); font-size:11px; text-align:center; }
+  footer { padding:14px 22px; padding-bottom:calc(14px + env(safe-area-inset-bottom,0px)); border-top:2px solid var(--ink); color:var(--muted); font-size:11px; text-align:center; }
   footer a { color:var(--muted); }
 </style>
 </head>
@@ -231,7 +231,8 @@ if (location.protocol === "http:" && !["localhost","127.0.0.1"].includes(locatio
 // Local testing uses the Node server (server/server.js) on :8787.
 // In production, point this at your deployed Cloudflare Worker URL.
 const WORKER_URL = "wss://improv-roulette.mattfracek.workers.dev";  // deployed signaling Worker
-const isLocal = ["localhost","127.0.0.1"].includes(location.hostname);
+const isNative = typeof window.Capacitor !== "undefined";   // running inside the native iOS/Android app
+const isLocal = !isNative && ["localhost","127.0.0.1"].includes(location.hostname);
 const SIGNAL_URL = isLocal ? "ws://localhost:8787" : WORKER_URL;
 
 // Optional: only open at a set time (e.g. 7pm). Off by default for testing.
