@@ -577,6 +577,9 @@ els.next.onclick = () => {
 els.stop.onclick = () => {
   active = false;
   teardownPeer();
+  // Fully release the camera + mic so the device light goes off (Start re-acquires next time).
+  if(localStream){ localStream.getTracks().forEach(tr => tr.stop()); localStream = null; }
+  els.local.srcObject = null;
   // Leave the queue/scene but keep the socket open so the online counter stays live.
   if(ws && ws.readyState === 1) ws.send(JSON.stringify({ t:"leave" }));
   els.start.disabled = false;
