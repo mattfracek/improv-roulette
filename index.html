@@ -66,8 +66,7 @@
   .modal-actions { display:flex; gap:10px; margin-top:6px; }
   .modal-actions button { flex:1; }
   .modal-note { margin-top:12px; font-size:12.5px; color:var(--accent); min-height:16px; text-align:center; }
-  .banner { background:var(--paper2); border-bottom:2px solid var(--ink); color:var(--muted);
-            font-size:13px; text-align:center; padding:10px 18px; line-height:1.4; }
+  .banner { color:var(--muted); font-size:12.5px; text-align:center; line-height:1.5; max-width:520px; margin:0 auto; }
   .banner b { color:var(--accent); font-weight:700; }
   .wrap { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:28px 24px; gap:20px; }
   .videos { display:grid; grid-template-columns:1fr 1fr; gap:20px; width:100%; max-width:1240px; }
@@ -142,8 +141,6 @@
     <span class="online" id="online"><span class="dot"></span>connecting...</span>
   </header>
 
-  <div class="banner">This is a brand new project, just getting started. If no one's around, that's why.. best time to find a partner is <b>7&nbsp;PM Central, nightly</b>.</div>
-
   <div class="wrap">
     <div class="videos">
       <div class="vbox waiting" id="localBox" data-msg="Your camera's off.. tap Start to go live"><video id="localVideo" autoplay playsinline muted></video><span class="label">You</span><span class="exit-hint">Tap to exit</span></div>
@@ -158,6 +155,8 @@
       <button id="stopBtn" class="secondary" disabled>Stop</button>
       <button id="reportBtn" class="secondary danger" style="display:none">Report / Block</button>
     </div>
+
+    <div class="banner">This is a brand new project, just getting started. If no one's around, that's why.. best time to find a partner is <b>7&nbsp;PM Central, nightly</b>.</div>
 
     <div class="solo-link"><a href="/solo/index.html">&#127917;&nbsp; No one around? Practice solo &rarr;</a></div>
 
