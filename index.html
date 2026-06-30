@@ -68,6 +68,15 @@
   .modal-note { margin-top:12px; font-size:12.5px; color:var(--accent); min-height:16px; text-align:center; }
   .banner { color:var(--muted); font-size:12.5px; text-align:center; line-height:1.5; max-width:520px; margin:0 auto; }
   .banner b { color:var(--accent); font-weight:700; }
+  .presence { display:block; text-align:center; max-width:520px; margin:0 auto 16px; padding:11px 16px;
+    border:2px solid var(--ink); border-radius:8px; font-size:13.5px; line-height:1.4; }
+  .presence[hidden] { display:none; }
+  .presence.live { background:var(--accent); color:#fff; font-weight:700; cursor:pointer; box-shadow:var(--shadow-sm); animation:ppulse 1.7s ease-in-out infinite; }
+  .presence.live .pdot { display:inline-block; width:9px; height:9px; border-radius:50%; background:#fff; margin-right:8px; vertical-align:middle; animation:pblink 1s step-start infinite; }
+  .presence.soft { background:var(--paper2); color:var(--muted); border-style:dashed; }
+  .presence.soft b { color:var(--accent); }
+  @keyframes ppulse { 0%,100%{ transform:scale(1); } 50%{ transform:scale(1.025); } }
+  @keyframes pblink { 50%{ opacity:.25; } }
   .wrap { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:28px 24px; gap:20px; }
   .videos { display:grid; grid-template-columns:1fr 1fr; gap:20px; width:100%; max-width:1240px; }
   @media (max-width:640px){ .videos { grid-template-columns:1fr; } }
@@ -142,6 +151,7 @@
   </header>
 
   <div class="wrap">
+    <div class="presence" id="presence" hidden></div>
     <div class="videos">
       <div class="vbox waiting" id="localBox" data-msg="Your camera's off.. tap Start to go live"><video id="localVideo" autoplay playsinline muted></video><span class="label">You</span><span class="exit-hint">Tap to exit</span></div>
       <div class="vbox waiting" id="remoteBox" data-msg="No partner yet"><video id="remoteVideo" autoplay playsinline></video><span class="label">Partner</span><span class="exit-hint">Tap to exit</span></div>
@@ -279,6 +289,7 @@ const els = {
   remoteBox: document.getElementById("remoteBox"),
   localBox: document.getElementById("localBox"),
   online: document.getElementById("online"),
+  presence: document.getElementById("presence"),
   modeTabs: document.getElementById("modeTabs"),
   modeInstr: document.getElementById("modeInstr"),
   modeFields: document.getElementById("modeFields"),
@@ -497,6 +508,9 @@ async function handleSignal(msg){
   }
   else if(msg.t === "online"){
     setOnline(msg.count);
+    if(typeof msg.count === "number") lastOnline = msg.count;
+    lastWaiting = msg.waiting || 0;
+    updatePresence();
   }
   else if(msg.t === "left"){
     setStatus("Partner left. Finding a new one...");
@@ -509,6 +523,31 @@ function setOnline(n){
   if(typeof n !== "number") return;
   els.online.textContent = n + (n === 1 ? " person online" : " people online");
 }
+
+// ---- Live presence nudge -------------------------------------------------
+// Two-sided, honest, only-when-positive. Lurkers (page open, not started) get nudged:
+//  - someone is actively waiting in the queue  -> strong "tap to jump in" (guaranteed instant match)
+//  - others are online but nobody's waiting yet -> soft "start a scene and they'll see you waiting"
+// Hidden entirely while you're in the queue/scene, or when you're truly alone.
+let lastOnline = 0, lastWaiting = 0;
+function updatePresence(){
+  const el = els.presence; if(!el) return;
+  if(active){ el.hidden = true; return; }                 // already in it — nothing to nudge
+  if(lastWaiting >= 1){
+    el.className = "presence live";
+    el.innerHTML = '<span class="pdot"></span>Someone\'s here right now, waiting to run a scene.. tap to jump in';
+    el.hidden = false;
+  } else if(lastOnline > 1){
+    const others = lastOnline - 1;
+    el.className = "presence soft";
+    el.innerHTML = '<b>' + others + '</b> ' + (others === 1 ? "other person is" : "others are") +
+                   " here right now.. start a scene and they'll see you're waiting";
+    el.hidden = false;
+  } else {
+    el.hidden = true;                                      // alone — keep it honest, show nothing
+  }
+}
+if(els.presence) els.presence.onclick = () => { if(!active && els.presence.classList.contains("live")) els.start.onclick(); };
 
 async function startPeer(initiator){
   teardownPeer();
@@ -581,6 +620,7 @@ els.start.onclick = async () => {
     return;
   }
   active = true;
+  updatePresence();   // you're in the queue now — drop the nudge
   els.start.disabled = true;
   els.next.disabled = false;
   els.stop.disabled = false;
@@ -612,6 +652,7 @@ els.stop.onclick = () => {
   resetPrompts();
   setRemoteMsg("No partner yet");
   setStatus("Stopped. Tap Start to jump back in.");
+  updatePresence();   // back to idle — re-show the nudge if anyone's around
 };
 
 renderMode("scene");   // initial game panel (tabs + Scene mode)
