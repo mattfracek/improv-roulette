@@ -311,7 +311,15 @@
         <button id="profileSave">Enter the green room</button>
       </div>
       <div class="modal-note" id="profileNote"></div>
-      <div style="text-align:center; margin-top:10px;"><a href="#" id="profileDelete" style="display:none; color:var(--muted); font-size:12px;">Delete my profile</a></div>
+      <div style="text-align:center; margin-top:10px;">
+        <a href="#" id="profileSignout" style="display:none; color:var(--muted); font-size:12px; margin:0 10px;">Sign out</a>
+        <a href="#" id="profileDelete" style="display:none; color:var(--muted); font-size:12px; margin:0 10px;">Delete my profile</a>
+      </div>
+      <div id="deleteConfirm" hidden style="margin-top:12px; border:2px solid var(--accent); border-radius:6px; padding:14px; background:var(--paper); text-align:center;">
+        <div style="font-size:13px; line-height:1.5; margin-bottom:12px;"><b>Delete your profile?</b><br>This permanently deletes your account and <b>all your friendships</b>. There's no undo.</div>
+        <button id="deleteYes" class="danger" style="margin-right:8px;">Yes, delete everything</button>
+        <button id="deleteNo" class="secondary">Keep my profile</button>
+      </div>
     </div>
   </div>
 
@@ -846,6 +854,8 @@ function openProfileModal(){
     googleBtnWrap.style.display = "none";
   }
   profileDelete.style.display = (p.session || p.name) ? "" : "none";
+  document.getElementById("profileSignout").style.display = p.session ? "" : "none";
+  document.getElementById("deleteConfirm").hidden = true;   // always start collapsed
   grEls.modal.style.display = "flex";
 }
 appleBtn.onclick = async () => {
@@ -909,18 +919,39 @@ grEls.save.onclick = async () => {
   if(handUp) sendHand();   // editing while your hand is up — refresh your roster entry
   if(pendingAfterProfile){ const f = pendingAfterProfile; pendingAfterProfile = null; f(); }
 };
-profileDelete.onclick = async (e) => {
+// Delete = two-step. The link only reveals a confirm box; nothing happens until
+// "Yes, delete everything" — so a stray tap can never nuke someone's friendships.
+profileDelete.onclick = (e) => {
   e.preventDefault();
+  document.getElementById("deleteConfirm").hidden = false;
+};
+document.getElementById("deleteNo").onclick = () => { document.getElementById("deleteConfirm").hidden = true; };
+document.getElementById("deleteYes").onclick = async () => {
   const p = getProfile() || {};
   if(p.session){ try { await fetch(API_BASE + "/delete-account", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ session: p.session }) }); } catch(_){} }
   localStorage.removeItem("ipprofile");
   pendingAuth = null;
   if(handUp) sendUnhand();
+  document.getElementById("deleteConfirm").hidden = true;
   grEls.modal.style.display = "none";
   renderGR();
   myFriends = {};
   renderFriends();
   setStatus("Profile deleted.");
+};
+// Sign out: clears this device only — the account and friendships stay on the
+// server, and signing back in with the same Apple/Google brings them all back.
+document.getElementById("profileSignout").onclick = (e) => {
+  e.preventDefault();
+  localStorage.removeItem("ipprofile");
+  pendingAuth = null;
+  if(handUp) sendUnhand();
+  grEls.modal.style.display = "none";
+  document.getElementById("acctMenu").hidden = true;
+  myFriends = {};
+  renderGR();
+  renderFriends();
+  setStatus("Signed out. Your friends are saved.. sign back in anytime.");
 };
 
 function sendHand(){
