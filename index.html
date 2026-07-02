@@ -172,7 +172,11 @@
                  text-transform:uppercase; color:var(--paper); background:var(--ink); padding:4px 9px; border-radius:4px; font-weight:700; }
   .vbox.waiting::after { content:attr(data-msg); position:absolute; inset:0; display:flex; align-items:center;
                  justify-content:center; color:#b8a886; font-size:14px; text-align:center; padding:20px; }
-  .controls { display:flex; gap:12px; align-items:center; }
+  .controls { display:flex; gap:12px; align-items:center; justify-content:center; flex-wrap:wrap; max-width:100%; }
+  @media (max-width:600px){
+    .controls { gap:8px; }
+    .controls button { font-size:13px; padding:9px 14px; white-space:nowrap; }
+  }
   button { font-family:var(--font-body); font-size:15px; font-weight:700; border:2px solid var(--ink); border-radius:5px;
            padding:11px 24px; cursor:pointer; color:var(--paper); background:var(--accent); box-shadow:var(--shadow-sm);
            transition:transform .08s, box-shadow .08s; }
