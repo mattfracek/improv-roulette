@@ -201,7 +201,7 @@
       <div class="gr-head">Green Room <small id="grCount"></small></div>
       <div class="gr-list" id="grList"></div>
       <div class="gr-friends" id="grFriendsWrap" hidden>
-        <div class="gr-subhead">Scene partners</div>
+        <div class="gr-subhead">Friends</div>
         <div id="grFriends"></div>
       </div>
       <div class="gr-foot">
@@ -221,7 +221,7 @@
       <button id="startBtn">Start</button>
       <button id="nextBtn" class="secondary" disabled>Next partner</button>
       <button id="stopBtn" class="secondary" disabled>Stop</button>
-      <button id="friendBtn" class="secondary" style="display:none">&#11088; Add scene partner</button>
+      <button id="friendBtn" class="secondary" style="display:none">&#11088; Add friend</button>
       <button id="reportBtn" class="secondary danger" style="display:none">Report / Block</button>
     </div>
 
@@ -625,14 +625,14 @@ async function handleSignal(msg){
   else if(msg.t === "friend-req"){
     if(msg.from && msg.from.id && !blocks.has(msg.from.id)){
       pendingReqFrom = msg.from;
-      frEls.text.innerHTML = escapeHtml(msg.from.avatar || "\u{1F3AD}") + " <b>" + escapeHtml(msg.from.name) + "</b> wants to add you as a scene partner";
+      frEls.text.innerHTML = escapeHtml(msg.from.avatar || "\u{1F3AD}") + " <b>" + escapeHtml(msg.from.name) + "</b> wants to be friends";
       frEls.bar.hidden = false;
     }
   }
   else if(msg.t === "friend-added"){
     if(msg.friend && msg.friend.id){
       myFriends[msg.friend.id] = msg.friend;
-      setStatus("\u{2B50} You and <b>" + escapeHtml(msg.friend.name) + "</b> are scene partners now.");
+      setStatus("\u{2B50} You and <b>" + escapeHtml(msg.friend.name) + "</b> are friends now.");
       frEls.btn.style.display = "none";
       requestFriends();
     }
@@ -643,7 +643,7 @@ async function handleSignal(msg){
     renderFriends();
   }
   else if(msg.t === "cued"){
-    const n = (msg.from && msg.from.name) || "A scene partner";
+    const n = (msg.from && msg.from.name) || "A friend";
     setStatus("\u{1F3AD} <b>" + escapeHtml(n) + "</b> cued you for a scene" + (GREENROOM ? ".. raise your hand!" : "!"));
   }
   else if(msg.t === "cue-sent"){ setStatus("Cue sent \u{1F3AD} They'll get a ping."); }
@@ -893,7 +893,7 @@ frEls.btn.onclick = () => {
     const p = getProfile();
     if(ws && ws.readyState === 1) ws.send(JSON.stringify({ t:"friend-req", id: MY_ID, name: p.name, avatar: p.avatar }));
     frEls.btn.style.display = "none";
-    setStatus("Scene partner request sent..");
+    setStatus("Friend request sent..");
   };
   if(!getProfile()){ pendingAfterProfile = go; openProfileModal(); return; }
   go();
