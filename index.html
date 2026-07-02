@@ -645,6 +645,26 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
+let signalChain = Promise.resolve();
+// UI invariant, enforced after every processed message: in green-room mode the
+// room is visible unless we're GENUINELY in a scene. No interleaving of async
+// handlers can strand the page in a hidden-room zombie state anymore.
+function syncUI(){
+  if(typeof GREENROOM === "undefined" || !GREENROOM) return;
+  if(!matched){
+    if(grEls.panel.hidden){
+      grEls.panel.hidden = false;
+      renderGR();
+      setStatus("Ready when you are.. raise your hand or tap a name.");   // clear any stale scene text
+    }
+    els.stop.disabled = true;
+  } else {
+    grEls.panel.hidden = true;
+    els.stop.disabled = false;
+  }
+}
+setInterval(syncUI, 3000);   // self-healing even with no traffic
+
 let closing = false;
 function connectSignal(){
   ws = new WebSocket(SIGNAL_URL);
@@ -672,7 +692,17 @@ function connectSignal(){
     else if(active && !GREENROOM) ws.send(JSON.stringify({ t:"join", ...idFields() }));
     requestFriends();
   };
-  ws.onmessage = (e) => { lastPong = Date.now(); handleSignal(JSON.parse(e.data)); };
+  // Serialize message handling: handleSignal is async (camera acquisition can
+  // take seconds on mobile), and concurrent handlers interleaving mid-await was
+  // stranding the UI (green room hidden, stale status, nothing actually running).
+  ws.onmessage = (e) => {
+    lastPong = Date.now();
+    let m; try { m = JSON.parse(e.data); } catch { return; }
+    signalChain = signalChain
+      .then(() => handleSignal(m))
+      .catch(() => {})
+      .then(syncUI);   // after EVERY message settles, the UI must reflect true state
+  };
   ws.onclose = () => {
     els.online.textContent = "reconnecting...";
     if(active) setStatus("Reconnecting...");
