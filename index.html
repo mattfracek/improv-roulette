@@ -625,6 +625,25 @@ let closing = false;
 function connectSignal(){
   ws = new WebSocket(SIGNAL_URL);
   ws.onopen = () => {
+    // A fresh socket has no pairing server-side. If we still think we're in a
+    // scene, that scene died with the old socket (mobile backgrounding) — recover.
+    if(matched){
+      teardownPeer();
+      if(localStream){ localStream.getTracks().forEach(tr => tr.stop()); localStream = null; }
+      els.local.srcObject = null;
+      els.localBox.classList.add("waiting");
+      setRemoteMsg("No partner yet");
+      if(GREENROOM){
+        active = false; els.stop.disabled = true; grEls.panel.hidden = false;
+        sendHand();
+        setStatus("Reconnected.. your hand's back up.");
+      } else {
+        setStatus("Reconnected. Finding a new partner...");
+        if(active) ws.send(JSON.stringify({ t:"join", ...idFields() }));
+      }
+      requestFriends();
+      return;
+    }
     if(GREENROOM && handUp && !matched) sendHand();          // reconnected — put the hand back up
     else if(active && !GREENROOM) ws.send(JSON.stringify({ t:"join", ...idFields() }));
     requestFriends();
