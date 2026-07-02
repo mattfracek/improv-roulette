@@ -77,6 +77,36 @@
   .presence.soft b { color:var(--accent); }
   @keyframes ppulse { 0%,100%{ transform:scale(1); } 50%{ transform:scale(1.025); } }
   @keyframes pblink { 50%{ opacity:.25; } }
+
+  /* ---- Green Room (choose-your-partner mode) ---- */
+  .gr { max-width:520px; margin:0 auto 16px; border:2px solid var(--ink); border-radius:8px;
+    background:var(--paper2); box-shadow:var(--shadow-sm); overflow:hidden; }
+  .gr[hidden] { display:none; }
+  .gr-head { background:var(--ink); color:var(--paper); padding:9px 14px; font-family:var(--font-display);
+    font-size:14px; letter-spacing:1.5px; text-transform:uppercase; display:flex; justify-content:space-between; align-items:center; }
+  .gr-head small { font-family:var(--font-body); font-size:11px; letter-spacing:.5px; color:var(--soft); text-transform:none; }
+  .gr-list { max-height:250px; overflow-y:auto; }
+  .gr-row { display:flex; align-items:center; gap:12px; padding:11px 14px; border-bottom:1px solid var(--soft);
+    cursor:pointer; background:var(--paper2); transition:background .12s; }
+  .gr-row:hover { background:var(--paper); }
+  .gr-row .av { width:38px; height:38px; flex:none; border:2px solid var(--ink); border-radius:50%;
+    background:var(--paper); display:flex; align-items:center; justify-content:center; font-size:20px; }
+  .gr-row .nm { font-weight:700; font-size:14.5px; }
+  .gr-row .nm small { display:block; font-weight:400; font-size:11.5px; color:var(--muted); }
+  .gr-row .go { margin-left:auto; color:var(--accent); font-weight:700; font-size:12.5px; white-space:nowrap; }
+  .gr-row.me { cursor:default; background:var(--paper2); }
+  .gr-row.me .go { color:var(--muted); font-weight:400; }
+  .gr-empty { padding:16px 14px; color:var(--muted); font-size:13px; text-align:center; line-height:1.5; }
+  .gr-foot { padding:12px 14px; border-top:2px solid var(--ink); background:var(--paper2); }
+  .gr-foot button { width:100%; }
+  .gr-foot .hint { margin-top:8px; font-size:12px; color:var(--muted); text-align:center; line-height:1.45; }
+  .gr-foot .hint a { color:var(--accent); font-weight:700; text-decoration:none; }
+  .avatar-row { display:flex; gap:8px; flex-wrap:wrap; margin:10px 0 14px; }
+  .avatar-row button { width:44px; height:44px; font-size:22px; padding:0; border:2px solid var(--soft);
+    border-radius:50%; background:var(--paper); box-shadow:none; cursor:pointer; }
+  .avatar-row button.sel { border-color:var(--accent); background:#fff; box-shadow:var(--shadow-sm); }
+  .profile-name { width:100%; padding:11px 12px; font-family:var(--font-body); font-size:15px;
+    border:2px solid var(--ink); border-radius:5px; background:#fff; color:var(--ink); margin-bottom:4px; }
   .wrap { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:28px 24px; gap:20px; }
   .videos { display:grid; grid-template-columns:1fr 1fr; gap:20px; width:100%; max-width:1240px; }
   @media (max-width:640px){ .videos { grid-template-columns:1fr; } }
@@ -152,6 +182,16 @@
 
   <div class="wrap">
     <div class="presence" id="presence" hidden></div>
+
+    <div class="gr" id="greenroom" hidden>
+      <div class="gr-head">Green Room <small id="grCount"></small></div>
+      <div class="gr-list" id="grList"></div>
+      <div class="gr-foot">
+        <button id="handBtn">&#127917; I'm up for a scene</button>
+        <div class="hint" id="grHint">Raise your hand and you'll appear here.. camera stays off until a scene starts.</div>
+      </div>
+    </div>
+
     <div class="videos">
       <div class="vbox waiting" id="localBox" data-msg="Your camera's off.. tap Start to go live"><video id="localVideo" autoplay playsinline muted></video><span class="label">You</span><span class="exit-hint">Tap to exit</span></div>
       <div class="vbox waiting" id="remoteBox" data-msg="No partner yet"><video id="remoteVideo" autoplay playsinline></video><span class="label">Partner</span><span class="exit-hint">Tap to exit</span></div>
@@ -195,6 +235,19 @@
         <button id="notifClose" class="secondary">Close</button>
       </div>
       <div class="modal-note" id="notifStatus"></div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="profileModal">
+    <div class="modal">
+      <div class="modal-title">Who's on stage?</div>
+      <div class="modal-sub">Pick a stage name and a mask so people in the green room know who they're starting a scene with.</div>
+      <input class="profile-name" id="profileName" maxlength="24" placeholder="Stage name (e.g. Matt F)" autocomplete="off">
+      <div class="avatar-row" id="avatarRow"></div>
+      <div class="modal-actions">
+        <button id="profileSave">Enter the green room</button>
+      </div>
+      <div class="modal-note" id="profileNote"></div>
     </div>
   </div>
 
@@ -466,7 +519,10 @@ async function getCamera(){
 let closing = false;
 function connectSignal(){
   ws = new WebSocket(SIGNAL_URL);
-  ws.onopen = () => { if(active) ws.send(JSON.stringify({ t:"join", id: MY_ID })); };
+  ws.onopen = () => {
+    if(GREENROOM && handUp && !matched) sendHand();          // reconnected — put the hand back up
+    else if(active && !GREENROOM) ws.send(JSON.stringify({ t:"join", id: MY_ID }));
+  };
   ws.onmessage = (e) => handleSignal(JSON.parse(e.data));
   ws.onclose = () => {
     els.online.textContent = "reconnecting...";
@@ -484,9 +540,26 @@ async function handleSignal(msg){
   }
   else if(msg.t === "matched"){
     // If we've blocked this person, skip them immediately without connecting.
-    if(msg.partnerId && blocks.has(msg.partnerId)){ ws.send(JSON.stringify({ t:"next" })); return; }
+    if(msg.partnerId && blocks.has(msg.partnerId)){
+      if(GREENROOM){ ws.send(JSON.stringify({ t:"leave" })); grIdle("Skipped someone you've blocked. Hand's back up."); }
+      else ws.send(JSON.stringify({ t:"next" }));
+      return;
+    }
+    // Green Room: camera stays off while waiting — it comes on now, at scene start.
+    if(!localStream){
+      try {
+        setStatus("Scene starting.. turning on your camera.");
+        await getCamera();
+      } catch(err){
+        ws.send(JSON.stringify({ t:"leave" }));
+        handUp = false; renderGR();
+        setStatus("Couldn't start your camera, so the scene was cancelled. Allow camera access and raise your hand again.");
+        return;
+      }
+    }
     currentPartnerId = msg.partnerId || null;
     matched = true;
+    if(GREENROOM){ active = true; grBusy = false; handUp = false; els.stop.disabled = false; renderGR(); }
     clearRemoteMsg();
     renderMode("scene");
     setStatus("Connected. <b>Go.</b>");
@@ -512,10 +585,22 @@ async function handleSignal(msg){
     lastWaiting = msg.waiting || 0;
     updatePresence();
   }
+  else if(msg.t === "roster"){
+    grRoster = msg.hands || [];
+    if(GREENROOM) renderGR();
+  }
+  else if(msg.t === "gone"){
+    grBusy = false;
+    setStatus("They just stepped out.. pick someone else.");
+  }
   else if(msg.t === "left"){
-    setStatus("Partner left. Finding a new one...");
-    teardownPeer();
-    if(active) ws.send(JSON.stringify({ t:"join", id: MY_ID }));
+    if(GREENROOM){
+      grIdle("Partner left.. your hand's back up.");
+    } else {
+      setStatus("Partner left. Finding a new one...");
+      teardownPeer();
+      if(active) ws.send(JSON.stringify({ t:"join", id: MY_ID }));
+    }
   }
 }
 
@@ -532,6 +617,7 @@ function setOnline(n){
 let lastOnline = 0, lastWaiting = 0;
 function updatePresence(){
   const el = els.presence; if(!el) return;
+  if(typeof GREENROOM !== "undefined" && GREENROOM){ el.hidden = true; return; }   // the roster IS the presence UI
   if(active){ el.hidden = true; return; }                 // already in it — nothing to nudge
   if(lastWaiting >= 1){
     el.className = "presence live";
@@ -549,6 +635,118 @@ function updatePresence(){
 }
 if(els.presence) els.presence.onclick = () => { if(!active && els.presence.classList.contains("live")) els.start.onclick(); };
 
+// ---- Green Room (choose-your-partner mode — the App Store-compliant flow) ----
+// You raise a hand (camera OFF), appear in a named roster, and video only starts
+// when someone taps a specific person. Test with ?greenroom=1; the app will
+// default to this once approved. Kills "random" (you choose who) and
+// "anonymous" (stage name + avatar) per Apple guideline 1.2.
+const GREENROOM = new URLSearchParams(location.search).has("greenroom");
+const grEls = {
+  panel: document.getElementById("greenroom"),
+  list: document.getElementById("grList"),
+  count: document.getElementById("grCount"),
+  hand: document.getElementById("handBtn"),
+  hint: document.getElementById("grHint"),
+  modal: document.getElementById("profileModal"),
+  name: document.getElementById("profileName"),
+  avatars: document.getElementById("avatarRow"),
+  save: document.getElementById("profileSave"),
+  note: document.getElementById("profileNote"),
+};
+let handUp = false, grRoster = [], grBusy = false, pendingAfterProfile = null;
+const AVATARS = ["\u{1F3AD}","\u{1F604}","\u{1F920}","\u{1F575}\u{FE0F}","\u{1F475}","\u{1F9D9}","\u{1F916}","\u{1F451}","\u{1F414}","\u{1F996}"];
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function getProfile(){ try { return JSON.parse(localStorage.getItem("ipprofile")||"null"); } catch { return null; } }
+
+function openProfileModal(){
+  const p = getProfile() || {};
+  grEls.name.value = p.name || "";
+  grEls.note.textContent = "";
+  grEls.avatars.innerHTML = "";
+  const sel = p.avatar || AVATARS[0];
+  AVATARS.forEach(a => {
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = a;
+    if(a === sel) b.classList.add("sel");
+    b.onclick = () => { grEls.avatars.querySelectorAll("button").forEach(x => x.classList.remove("sel")); b.classList.add("sel"); };
+    grEls.avatars.appendChild(b);
+  });
+  grEls.modal.style.display = "flex";
+}
+grEls.save.onclick = () => {
+  const name = grEls.name.value.trim();
+  if(!name){ grEls.note.textContent = "Give yourself a stage name first."; return; }
+  const avatar = (grEls.avatars.querySelector("button.sel") || {}).textContent || AVATARS[0];
+  localStorage.setItem("ipprofile", JSON.stringify({ name, avatar }));
+  grEls.modal.style.display = "none";
+  if(pendingAfterProfile){ const f = pendingAfterProfile; pendingAfterProfile = null; f(); }
+};
+
+function sendHand(){
+  const p = getProfile(); if(!p) return;
+  handUp = true;
+  if(ws && ws.readyState === 1) ws.send(JSON.stringify({ t:"hand", id: MY_ID, name: p.name, avatar: p.avatar }));
+  renderGR();
+}
+function sendUnhand(){
+  handUp = false;
+  if(ws && ws.readyState === 1) ws.send(JSON.stringify({ t:"unhand" }));
+  renderGR();
+}
+grEls.hand.onclick = () => {
+  if(matched) return;
+  if(!getProfile()){ pendingAfterProfile = sendHand; openProfileModal(); return; }
+  handUp ? sendUnhand() : sendHand();
+};
+
+function invite(id, name){
+  if(grBusy || matched) return;
+  const go = () => {
+    grBusy = true;
+    setStatus("Starting a scene with <b>" + escapeHtml(name) + "</b>...");
+    if(ws && ws.readyState === 1) ws.send(JSON.stringify({ t:"invite", target: id, id: MY_ID }));
+    setTimeout(() => { grBusy = false; }, 4000);   // safety valve if the invite goes nowhere
+  };
+  if(!getProfile()){ pendingAfterProfile = go; openProfileModal(); return; }
+  go();
+}
+
+function renderGR(){
+  if(!GREENROOM) return;
+  const me = grRoster.find(h => h.id === MY_ID);
+  const others = grRoster.filter(h => h.id !== MY_ID && !blocks.has(h.id));
+  const n = (me ? 1 : 0) + others.length;
+  grEls.count.textContent = n ? (n + (n === 1 ? " hand up" : " hands up")) : "";
+  let html = "";
+  if(me) html += '<div class="gr-row me"><div class="av">' + escapeHtml(me.avatar) + '</div><div class="nm">' + escapeHtml(me.name) + '<small>that\'s you</small></div><div class="go">hand\'s up &#9995;</div></div>';
+  others.forEach(h => {
+    html += '<div class="gr-row" data-id="' + escapeHtml(h.id) + '" data-name="' + escapeHtml(h.name) + '"><div class="av">' + escapeHtml(h.avatar) + '</div><div class="nm">' + escapeHtml(h.name) + '<small>up for a scene</small></div><div class="go">Start a scene &rarr;</div></div>';
+  });
+  if(!html) html = '<div class="gr-empty">Nobody\'s hand is up yet.<br>Raise yours and <a href="/solo/index.html" style="color:var(--accent);font-weight:700">drill solo</a> while you wait.</div>';
+  grEls.list.innerHTML = html;
+  grEls.list.querySelectorAll(".gr-row[data-id]").forEach(row => {
+    row.onclick = () => invite(row.dataset.id, row.dataset.name);
+  });
+  grEls.hand.innerHTML = handUp ? "Lower my hand" : "&#127917; I'm up for a scene";
+  grEls.hint.textContent = handUp
+    ? "Hand's up.. you'll connect the moment someone taps you. Camera stays off until then."
+    : "Raise your hand and you'll appear here.. camera stays off until a scene starts.";
+}
+
+// Back to the green room after a scene ends: camera off, hand back up.
+function grIdle(msg){
+  teardownPeer();
+  if(localStream){ localStream.getTracks().forEach(tr => tr.stop()); localStream = null; }
+  els.local.srcObject = null;
+  els.localBox.classList.add("waiting");
+  setRemoteMsg("No partner yet");
+  active = false;
+  els.stop.disabled = true;
+  resetPrompts();
+  sendHand();
+  setStatus(msg);
+}
+
 async function startPeer(initiator){
   teardownPeer();
   pc = new RTCPeerConnection(ICE);
@@ -560,6 +758,11 @@ async function startPeer(initiator){
   };
   pc.onconnectionstatechange = () => {
     if(["failed","disconnected","closed"].includes(pc.connectionState) && active && matched){
+      if(GREENROOM){
+        ws.send(JSON.stringify({ t:"leave" }));
+        grIdle("Connection dropped.. your hand's back up.");
+        return;
+      }
       setStatus("Connection dropped. Finding a new partner...");
       teardownPeer();
       ws.send(JSON.stringify({ t:"next" }));
@@ -651,11 +854,26 @@ els.stop.onclick = () => {
   els.stop.disabled = true;
   resetPrompts();
   setRemoteMsg("No partner yet");
-  setStatus("Stopped. Tap Start to jump back in.");
+  if(GREENROOM){
+    handUp = false; grBusy = false; renderGR();
+    setStatus("Scene ended. Raise your hand when you're ready for another.");
+  } else {
+    setStatus("Stopped. Tap Start to jump back in.");
+  }
   updatePresence();   // back to idle — re-show the nudge if anyone's around
 };
 
 renderMode("scene");   // initial game panel (tabs + Scene mode)
+
+// Green Room mode: the roster replaces the Start/Next queue controls.
+if(GREENROOM){
+  grEls.panel.hidden = false;
+  els.start.style.display = "none";
+  els.next.style.display = "none";
+  els.localBox.dataset.msg = "Camera's off until a scene starts";
+  setStatus("Welcome to the green room. Tap a name to start a scene, or raise your hand.");
+  renderGR();
+}
 
 // Tap a video to fill the screen; tap again to shrink. Only expands a live feed.
 function toggleExpand(box, video){
