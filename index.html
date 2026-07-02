@@ -94,7 +94,7 @@
   .gr-row .nm { font-weight:700; font-size:14.5px; }
   .gr-row .nm small { display:block; font-weight:400; font-size:11.5px; color:var(--muted); }
   .gr-row .go { margin-left:auto; color:var(--accent); font-weight:700; font-size:12.5px; white-space:nowrap; }
-  .gr-row.me { cursor:default; background:var(--paper2); }
+  .gr-row.me { background:var(--paper2); }   /* clickable: tap yourself to edit your profile */
   .gr-row.me .go { color:var(--muted); font-weight:400; }
   .gr-empty { padding:16px 14px; color:var(--muted); font-size:13px; text-align:center; line-height:1.5; }
   .gr-foot { padding:12px 14px; border-top:2px solid var(--ink); background:var(--paper2); }
@@ -242,12 +242,14 @@
     <div class="modal">
       <div class="modal-title">Who's on stage?</div>
       <div class="modal-sub">Pick a stage name and a mask so people in the green room know who they're starting a scene with.</div>
+      <button id="appleBtn" style="display:none; width:100%; background:#000; color:#fff; border:2px solid #000; border-radius:6px; padding:12px; font-size:15px; font-weight:700; cursor:pointer; margin-bottom:14px;">&#63743; Continue with Apple</button>
       <input class="profile-name" id="profileName" maxlength="24" placeholder="Stage name (e.g. Matt F)" autocomplete="off">
       <div class="avatar-row" id="avatarRow"></div>
       <div class="modal-actions">
         <button id="profileSave">Enter the green room</button>
       </div>
       <div class="modal-note" id="profileNote"></div>
+      <div style="text-align:center; margin-top:10px;"><a href="#" id="profileDelete" style="display:none; color:var(--muted); font-size:12px;">Delete my profile</a></div>
     </div>
   </div>
 
@@ -326,7 +328,7 @@ const OPEN_WINDOW = { enabled:false, startHour:19, endHour:23 };
 const ICE = { iceServers:[{ urls:"stun:stun.l.google.com:19302" }] };
 
 // Anonymous stable id so Block/Report persist without accounts.
-const MY_ID = (function(){ let v=localStorage.getItem("ipid"); if(!v){ v=(self.crypto&&crypto.randomUUID)?crypto.randomUUID():(Math.random().toString(36).slice(2)+Date.now().toString(36)); localStorage.setItem("ipid",v);} return v; })();
+let MY_ID = (function(){ let v=localStorage.getItem("ipid"); if(!v){ v=(self.crypto&&crypto.randomUUID)?crypto.randomUUID():(Math.random().toString(36).slice(2)+Date.now().toString(36)); localStorage.setItem("ipid",v);} return v; })();
 let blocks = new Set(JSON.parse(localStorage.getItem("ipblocks")||"[]"));
 function saveBlocks(){ localStorage.setItem("ipblocks", JSON.stringify([...blocks])); }
 let currentPartnerId = null;
@@ -640,7 +642,12 @@ if(els.presence) els.presence.onclick = () => { if(!active && els.presence.class
 // when someone taps a specific person. Test with ?greenroom=1; the app will
 // default to this once approved. Kills "random" (you choose who) and
 // "anonymous" (stage name + avatar) per Apple guideline 1.2.
-const GREENROOM = new URLSearchParams(location.search).has("greenroom");
+// Native app (build 11+, which has the Sign in with Apple plugin) always uses the
+// Green Room; the web opts in via ?greenroom=1. Build-10 app users keep classic
+// matching until they update — their build lacks the sign-in plugin.
+const SIWA = (typeof isNative !== "undefined" && isNative && window.Capacitor && window.Capacitor.Plugins) ? (window.Capacitor.Plugins.SignInWithApple || null) : null;
+const GREENROOM = !!SIWA || new URLSearchParams(location.search).has("greenroom");
+const API_BASE = (typeof isLocal !== "undefined" && isLocal) ? "http://localhost:8787" : "https://improv-roulette.mattfracek.workers.dev";
 const grEls = {
   panel: document.getElementById("greenroom"),
   list: document.getElementById("grList"),
@@ -658,6 +665,9 @@ const AVATARS = ["\u{1F3AD}","\u{1F604}","\u{1F920}","\u{1F575}\u{FE0F}","\u{1F4
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 function getProfile(){ try { return JSON.parse(localStorage.getItem("ipprofile")||"null"); } catch { return null; } }
 
+let pendingAppleToken = null;
+const appleBtn = document.getElementById("appleBtn");
+const profileDelete = document.getElementById("profileDelete");
 function openProfileModal(){
   const p = getProfile() || {};
   grEls.name.value = p.name || "";
@@ -671,21 +681,75 @@ function openProfileModal(){
     b.onclick = () => { grEls.avatars.querySelectorAll("button").forEach(x => x.classList.remove("sel")); b.classList.add("sel"); };
     grEls.avatars.appendChild(b);
   });
+  // Native: sign in with Apple is required to enter the green room (not anonymous).
+  if(SIWA && !p.session){
+    appleBtn.style.display = "";
+    appleBtn.disabled = false;
+    appleBtn.innerHTML = "&#63743; Continue with Apple";
+  } else {
+    appleBtn.style.display = "none";
+  }
+  profileDelete.style.display = (p.session || p.name) ? "" : "none";
   grEls.modal.style.display = "flex";
 }
-grEls.save.onclick = () => {
+appleBtn.onclick = async () => {
+  if(!SIWA){ grEls.note.textContent = "Apple sign-in isn't available here."; return; }
+  try {
+    const r = await SIWA.authorize({ clientId: "com.improvpractice.app", redirectURI: "https://improvpractice.com", scopes: "name" });
+    pendingAppleToken = (r && r.response && r.response.identityToken) || null;
+    if(!pendingAppleToken){ grEls.note.textContent = "Sign-in didn't complete.. try again."; return; }
+    if(r.response.givenName && !grEls.name.value) grEls.name.value = r.response.givenName;
+    appleBtn.innerHTML = "Signed in &#10003;";
+    appleBtn.disabled = true;
+    grEls.note.textContent = "";
+  } catch(e){ grEls.note.textContent = "Sign-in was cancelled."; }
+};
+grEls.save.onclick = async () => {
   const name = grEls.name.value.trim();
   if(!name){ grEls.note.textContent = "Give yourself a stage name first."; return; }
   const avatar = (grEls.avatars.querySelector("button.sel") || {}).textContent || AVATARS[0];
-  localStorage.setItem("ipprofile", JSON.stringify({ name, avatar }));
+  const prev = getProfile() || {};
+  if(SIWA){
+    // Native: the profile lives on the server, tied to the Apple sign-in.
+    if(!pendingAppleToken && !prev.session){ grEls.note.textContent = "Tap Continue with Apple first."; return; }
+    grEls.save.disabled = true; grEls.note.textContent = "Saving...";
+    try {
+      const body = pendingAppleToken
+        ? { token: pendingAppleToken, name, avatar }
+        : { session: prev.session, name, avatar };
+      const path = pendingAppleToken ? "/verify-apple" : "/update-profile";
+      const res = await fetch(API_BASE + path, { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body) });
+      const d = await res.json();
+      grEls.save.disabled = false;
+      if(!d.ok){ pendingAppleToken = null; grEls.note.textContent = "Sign-in didn't verify.. try Continue with Apple again."; openProfileModal(); return; }
+      const merged = { name, avatar, uid: d.uid || prev.uid, session: d.session || prev.session };
+      localStorage.setItem("ipprofile", JSON.stringify(merged));
+      if(merged.uid) MY_ID = merged.uid;
+      pendingAppleToken = null;
+    } catch(e){ grEls.save.disabled = false; grEls.note.textContent = "Couldn't reach the server.. try again."; return; }
+  } else {
+    localStorage.setItem("ipprofile", JSON.stringify({ ...prev, name, avatar }));
+  }
   grEls.modal.style.display = "none";
+  if(handUp) sendHand();   // editing while your hand is up — refresh your roster entry
   if(pendingAfterProfile){ const f = pendingAfterProfile; pendingAfterProfile = null; f(); }
+};
+profileDelete.onclick = async (e) => {
+  e.preventDefault();
+  const p = getProfile() || {};
+  if(p.session){ try { await fetch(API_BASE + "/delete-account", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ session: p.session }) }); } catch(_){} }
+  localStorage.removeItem("ipprofile");
+  pendingAppleToken = null;
+  if(handUp) sendUnhand();
+  grEls.modal.style.display = "none";
+  renderGR();
+  setStatus("Profile deleted.");
 };
 
 function sendHand(){
   const p = getProfile(); if(!p) return;
   handUp = true;
-  if(ws && ws.readyState === 1) ws.send(JSON.stringify({ t:"hand", id: MY_ID, name: p.name, avatar: p.avatar }));
+  if(ws && ws.readyState === 1) ws.send(JSON.stringify({ t:"hand", id: MY_ID, name: p.name, avatar: p.avatar, session: p.session || undefined }));
   renderGR();
 }
 function sendUnhand(){
@@ -727,6 +791,8 @@ function renderGR(){
   grEls.list.querySelectorAll(".gr-row[data-id]").forEach(row => {
     row.onclick = () => invite(row.dataset.id, row.dataset.name);
   });
+  const meRow = grEls.list.querySelector(".gr-row.me");
+  if(meRow) meRow.onclick = () => { if(!matched) openProfileModal(); };   // tap yourself to edit your profile
   grEls.hand.innerHTML = handUp ? "Lower my hand" : "&#127917; I'm up for a scene";
   grEls.hint.textContent = handUp
     ? "Hand's up.. you'll connect the moment someone taps you. Camera stays off until then."
@@ -868,6 +934,8 @@ renderMode("scene");   // initial game panel (tabs + Scene mode)
 
 // Green Room mode: the roster replaces the Start/Next queue controls.
 if(GREENROOM){
+  const p0 = getProfile();
+  if(p0 && p0.uid) MY_ID = p0.uid;   // signed-in users are known by their stable Apple id
   grEls.panel.hidden = false;
   els.start.style.display = "none";
   els.next.style.display = "none";
