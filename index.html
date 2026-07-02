@@ -621,6 +621,30 @@ async function getCamera(){
   return localStream;
 }
 
+// ---- Dead-socket detection (the mobile killer) ------------------------------
+// Phones background the page or hop networks and the socket dies SILENTLY —
+// readyState still says open, sends go into a void, and everything looks stuck.
+// Heartbeat: ping every 10s; no traffic for 25s => the socket is a corpse.
+// Force-close it, which triggers the reconnect + recovery path.
+let lastPong = Date.now();
+setInterval(() => {
+  if(!ws || ws.readyState !== 1) return;
+  if(Date.now() - lastPong > 25000){ try { ws.close(); } catch(_){} return; }
+  try { ws.send(JSON.stringify({ t:"ping" })); } catch(_){}
+}, 10000);
+document.addEventListener("visibilitychange", () => {
+  if(document.visibilityState !== "visible") return;
+  // Coming back from the background: probe immediately, and if no reply lands
+  // fast, declare the socket dead now instead of waiting for TCP to notice.
+  if(ws && ws.readyState === 1){
+    try { ws.send(JSON.stringify({ t:"ping" })); } catch(_){}
+    const probeAt = Date.now();
+    setTimeout(() => {
+      if(ws && ws.readyState === 1 && lastPong < probeAt){ try { ws.close(); } catch(_){} }
+    }, 3000);
+  }
+});
+
 let closing = false;
 function connectSignal(){
   ws = new WebSocket(SIGNAL_URL);
@@ -648,7 +672,7 @@ function connectSignal(){
     else if(active && !GREENROOM) ws.send(JSON.stringify({ t:"join", ...idFields() }));
     requestFriends();
   };
-  ws.onmessage = (e) => handleSignal(JSON.parse(e.data));
+  ws.onmessage = (e) => { lastPong = Date.now(); handleSignal(JSON.parse(e.data)); };
   ws.onclose = () => {
     els.online.textContent = "reconnecting...";
     if(active) setStatus("Reconnecting...");
@@ -1425,6 +1449,23 @@ els.stop.onclick = () => {
 
 renderMode("scene");   // initial game panel (tabs + Scene mode)
 renderFriends();       // identity + friends card, if you have a profile
+
+// ?debug=1 — live state readout for diagnosing stuck states in the field.
+if(new URLSearchParams(location.search).has("debug")){
+  const dbg = document.createElement("div");
+  dbg.style.cssText = "position:fixed;left:6px;bottom:6px;z-index:999;background:rgba(0,0,0,.82);color:#7CFC00;font:10px/1.5 monospace;padding:6px 9px;border-radius:6px;max-width:92vw;white-space:pre;pointer-events:none;";
+  document.body.appendChild(dbg);
+  setInterval(() => {
+    try {
+      dbg.textContent =
+        "ws:" + (ws ? ws.readyState : "-") + " pong:" + Math.round((Date.now() - lastPong) / 1000) + "s ago" +
+        "  matched:" + matched + " active:" + active +
+        "\nhand:" + handUp + " busy:" + grBusy + " panelHidden:" + (grEls.panel ? grEls.panel.hidden : "-") +
+        "\ncam:" + (localStream ? localStream.getTracks().map(t => t.readyState).join(",") : "none") +
+        "  remoteVideo:" + (els.remote.srcObject ? "yes" : "no");
+    } catch(e){ dbg.textContent = "dbg err: " + e.message; }
+  }, 500);
+}
 
 // Green Room mode: the roster replaces the Start/Next queue controls.
 if(GREENROOM){
