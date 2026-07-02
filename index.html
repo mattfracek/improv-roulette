@@ -215,6 +215,7 @@
     <h1>Improv <b>Practice</b></h1>
     <span class="tag">warm up &middot; find a scene partner &middot; play</span>
     <button class="acct-chip" id="acctChip" hidden><span class="av" id="acctAv">&#127917;</span><span id="acctName"></span><span class="ok" id="acctOk" hidden>&#10003;</span></button>
+    <button class="acct-chip" id="signinBtn" hidden style="padding:6px 14px;">Sign in</button>
     <button class="bell" id="bellBtn" aria-label="Notifications">&#128276;</button>
     <div class="acct-menu" id="acctMenu" hidden>
       <div class="am-you">
@@ -1038,7 +1039,9 @@ function renderFriends(){
   // appears once you have a profile; the dropdown opens on tap.
   const p = getProfile();
   const chip = document.getElementById("acctChip");
-  if(!p || !p.name){ chip.hidden = true; frEls.wrap.hidden = true; return; }
+  const signin = document.getElementById("signinBtn");
+  if(!p || !p.name){ chip.hidden = true; signin.hidden = false; frEls.wrap.hidden = true; return; }
+  signin.hidden = true;
   chip.hidden = false;
   document.getElementById("acctAv").textContent = p.avatar || "\u{1F3AD}";
   document.getElementById("acctName").textContent = p.name;
@@ -1078,6 +1081,10 @@ function renderFriends(){
     };
   });
 }
+document.getElementById("signinBtn").onclick = () => {
+  profileNeedsAuth = true;   // lead with Apple/Google, then stage name
+  openProfileModal();
+};
 document.getElementById("acctChip").onclick = () => {
   const m = document.getElementById("acctMenu");
   m.hidden = !m.hidden;
