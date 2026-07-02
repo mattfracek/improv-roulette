@@ -655,14 +655,21 @@ async function handleSignal(msg){
     // actually restarts (a dead stream left "Connected" scenes with black tiles).
     if(localStream && localStream.getTracks().every(t => t.readyState === "ended")){ localStream = null; }
     // Green Room: camera stays off while waiting — it comes on now, at scene start.
+    // iOS can HANG a second getUserMedia right after a recent release — race it
+    // against a timeout so a hung camera fails safely instead of freezing the app.
     if(!localStream){
       try {
         setStatus("Scene starting.. turning on your camera.");
-        await getCamera();
+        await Promise.race([
+          getCamera(),
+          new Promise((_, rej) => setTimeout(() => rej(new Error("camera-timeout")), 10000)),
+        ]);
       } catch(err){
         ws.send(JSON.stringify({ t:"leave" }));
         handUp = false; renderGR();
-        setStatus("Couldn't start your camera, so the scene was cancelled. Allow camera access and raise your hand again.");
+        setStatus(err && err.message === "camera-timeout"
+          ? "Your camera didn't wake up in time, so the scene was cancelled. Raise your hand and try again."
+          : "Couldn't start your camera, so the scene was cancelled. Allow camera access and raise your hand again.");
         return;
       }
     }
