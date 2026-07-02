@@ -67,7 +67,10 @@
   header .bell:hover { color:var(--accent); }
   /* notifications modal */
   .modal-backdrop { position:fixed; inset:0; background:rgba(43,36,32,.55); display:none; align-items:center; justify-content:center; z-index:80; padding:20px; }
-  .modal { background:var(--paper2); border:2px solid var(--ink); border-radius:6px; padding:24px; max-width:440px; width:100%; box-shadow:6px 6px 0 var(--ink); }
+  .modal { background:var(--paper2); border:2px solid var(--ink); border-radius:6px; padding:24px; max-width:440px; width:100%; box-shadow:6px 6px 0 var(--ink); position:relative; }
+  .modal-close { position:absolute; top:10px; right:12px; background:none; border:none; box-shadow:none; color:var(--muted);
+    font-size:22px; line-height:1; cursor:pointer; padding:6px; }
+  .modal-close:hover { color:var(--ink); }
   .modal-title { font-family:var(--font-display); font-size:20px; text-transform:uppercase; letter-spacing:1px; margin-bottom:6px; color:var(--ink); }
   .modal-sub { color:var(--muted); font-size:13px; line-height:1.55; margin-bottom:16px; }
   .modal-sub b { color:var(--ink); }
@@ -304,6 +307,7 @@
 
   <div class="modal-backdrop" id="profileModal">
     <div class="modal">
+      <button class="modal-close" id="profileClose" aria-label="Close">&#215;</button>
       <div id="authStep" hidden>
         <div class="modal-title">Make it yours</div>
         <div class="modal-sub">Sign in free and the good stuff sticks:</div>
@@ -912,6 +916,16 @@ appleBtn.onclick = async () => {
     document.getElementById("profileStep").hidden = false;
   } catch(e){ grEls.note.textContent = "Sign-in was cancelled."; }
 };
+// Three standard exits: the X, clicking the backdrop, and Escape.
+function closeProfileModal(){
+  grEls.modal.style.display = "none";
+  pendingAfterProfile = null;      // cancel whatever action was waiting on the profile
+  profileNeedsAuth = false;
+}
+document.getElementById("profileClose").onclick = closeProfileModal;
+grEls.modal.addEventListener("click", (e) => { if(e.target === grEls.modal) closeProfileModal(); });
+document.addEventListener("keydown", (e) => { if(e.key === "Escape" && grEls.modal.style.display === "flex") closeProfileModal(); });
+
 grEls.save.onclick = async () => {
   const name = grEls.name.value.trim();
   if(!name){ grEls.note.textContent = "Give yourself a stage name first."; return; }
