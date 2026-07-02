@@ -268,7 +268,8 @@
     <div class="modal">
       <div class="modal-title">Who's on stage?</div>
       <div class="modal-sub">Pick a stage name and a mask so people in the green room know who they're starting a scene with.</div>
-      <button id="appleBtn" style="display:none; width:100%; background:#000; color:#fff; border:2px solid #000; border-radius:6px; padding:12px; font-size:15px; font-weight:700; cursor:pointer; margin-bottom:14px;">&#63743; Continue with Apple</button>
+      <button id="appleBtn" style="display:none; width:100%; background:#000; color:#fff; border:2px solid #000; border-radius:6px; padding:12px; font-size:15px; font-weight:700; cursor:pointer; margin-bottom:10px;">&#63743; Continue with Apple</button>
+      <div id="googleBtnWrap" style="display:none; margin-bottom:14px;"></div>
       <input class="profile-name" id="profileName" maxlength="24" placeholder="Stage name (e.g. Matt F)" autocomplete="off">
       <div class="avatar-row" id="avatarRow"></div>
       <div class="modal-actions">
@@ -725,9 +726,40 @@ const AVATARS = ["\u{1F3AD}","\u{1F604}","\u{1F920}","\u{1F575}\u{FE0F}","\u{1F4
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 function getProfile(){ try { return JSON.parse(localStorage.getItem("ipprofile")||"null"); } catch { return null; } }
 
-let pendingAppleToken = null, profileNeedsAuth = false;
+let pendingAuth = null, profileNeedsAuth = false;   // pendingAuth = { path, token } from Apple or Google
 const appleBtn = document.getElementById("appleBtn");
+const googleBtnWrap = document.getElementById("googleBtnWrap");
 const profileDelete = document.getElementById("profileDelete");
+const GOOGLE_CLIENT_ID = "PENDING";   // paste the real OAuth client id once created
+function loadGoogleJS(){
+  return new Promise((res, rej) => {
+    if(window.google && window.google.accounts) return res();
+    const s = document.createElement("script");
+    s.src = "https://accounts.google.com/gsi/client";
+    s.onload = res; s.onerror = rej;
+    document.head.appendChild(s);
+  });
+}
+function setupGoogleButton(){
+  // Web only, and only once a real client id exists.
+  if(SIWA || GOOGLE_CLIENT_ID === "PENDING"){ googleBtnWrap.style.display = "none"; return; }
+  googleBtnWrap.style.display = "";
+  loadGoogleJS().then(() => {
+    window.google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: (resp) => {
+      if(!resp || !resp.credential) return;
+      pendingAuth = { path: "/verify-google", token: resp.credential };
+      try {
+        const c = JSON.parse(atob(resp.credential.split(".")[1].replace(/-/g,"+").replace(/_/g,"/")));
+        if(c.given_name && !grEls.name.value) grEls.name.value = c.given_name;
+      } catch(_){}
+      googleBtnWrap.innerHTML = '<div style="text-align:center;font-weight:700;padding:11px;border:2px solid var(--ink);border-radius:6px;background:#fff;">Signed in with Google &#10003;</div>';
+      appleBtn.style.display = "none";
+      grEls.note.textContent = "";
+    }});
+    googleBtnWrap.innerHTML = "";
+    window.google.accounts.id.renderButton(googleBtnWrap, { theme: "outline", size: "large", text: "continue_with", width: 330 });
+  }).catch(() => { googleBtnWrap.style.display = "none"; });
+}
 // Web Sign in with Apple (Apple JS, popup mode). Same Apple user id as the app,
 // so friendships made on the web and in the app belong to the same person.
 function loadAppleJS(){
@@ -767,9 +799,11 @@ function openProfileModal(){
     appleBtn.style.display = "";
     appleBtn.disabled = false;
     appleBtn.innerHTML = "&#63743; Continue with Apple";
-    if(profileNeedsAuth && !SIWA) grEls.note.textContent = "Friends are saved to your Apple sign-in, so you'll never lose them.";
+    setupGoogleButton();
+    if(profileNeedsAuth && !SIWA) grEls.note.textContent = "Friends are saved to your account, so you'll never lose them. Use the same sign-in everywhere.";
   } else {
     appleBtn.style.display = "none";
+    googleBtnWrap.style.display = "none";
   }
   profileDelete.style.display = (p.session || p.name) ? "" : "none";
   grEls.modal.style.display = "flex";
@@ -785,11 +819,12 @@ appleBtn.onclick = async () => {
       const r = await webAppleSignIn();
       token = r.token; givenName = r.givenName;
     }
-    pendingAppleToken = token;
-    if(!pendingAppleToken){ grEls.note.textContent = "Sign-in didn't complete.. try again."; return; }
+    if(!token){ grEls.note.textContent = "Sign-in didn't complete.. try again."; return; }
+    pendingAuth = { path: "/verify-apple", token };
     if(givenName && !grEls.name.value) grEls.name.value = givenName;
     appleBtn.innerHTML = "Signed in &#10003;";
     appleBtn.disabled = true;
+    googleBtnWrap.style.display = "none";
     grEls.note.textContent = "";
   } catch(e){ grEls.note.textContent = "Sign-in was cancelled."; }
 };
@@ -800,21 +835,21 @@ grEls.save.onclick = async () => {
   const prev = getProfile() || {};
   if(SIWA || profileNeedsAuth || prev.session){
     // The profile lives on the server, tied to the Apple sign-in.
-    if(!pendingAppleToken && !prev.session){ grEls.note.textContent = "Tap Continue with Apple first."; return; }
+    if(!pendingAuth && !prev.session){ grEls.note.textContent = "Sign in above first."; return; }
     grEls.save.disabled = true; grEls.note.textContent = "Saving...";
     try {
-      const body = pendingAppleToken
-        ? { token: pendingAppleToken, name, avatar }
+      const body = pendingAuth
+        ? { token: pendingAuth.token, name, avatar }
         : { session: prev.session, name, avatar };
-      const path = pendingAppleToken ? "/verify-apple" : "/update-profile";
+      const path = pendingAuth ? pendingAuth.path : "/update-profile";
       const res = await fetch(API_BASE + path, { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body) });
       const d = await res.json();
       grEls.save.disabled = false;
-      if(!d.ok){ pendingAppleToken = null; grEls.note.textContent = "Sign-in didn't verify.. try Continue with Apple again."; openProfileModal(); return; }
+      if(!d.ok){ pendingAuth = null; grEls.note.textContent = "Sign-in didn't verify.. try again."; openProfileModal(); return; }
       const merged = { name, avatar, uid: d.uid || prev.uid, session: d.session || prev.session };
       localStorage.setItem("ipprofile", JSON.stringify(merged));
       if(merged.uid) MY_ID = merged.uid;
-      pendingAppleToken = null;
+      pendingAuth = null;
       profileNeedsAuth = false;
       if(ws && ws.readyState === 1) ws.send(JSON.stringify({ t:"hello", session: merged.session }));   // bind this socket to the signed-in id
       requestFriends();
@@ -831,7 +866,7 @@ profileDelete.onclick = async (e) => {
   const p = getProfile() || {};
   if(p.session){ try { await fetch(API_BASE + "/delete-account", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ session: p.session }) }); } catch(_){} }
   localStorage.removeItem("ipprofile");
-  pendingAppleToken = null;
+  pendingAuth = null;
   if(handUp) sendUnhand();
   grEls.modal.style.display = "none";
   renderGR();
