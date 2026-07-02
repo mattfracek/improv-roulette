@@ -140,6 +140,9 @@
   .fr-row .nm small { display:block; font-weight:400; font-size:11px; color:var(--muted); }
   .fr-row .pdot2 { width:8px; height:8px; border-radius:50%; flex:none; }
   .fr-row button { margin-left:auto; padding:6px 12px; font-size:12px; }
+  .fr-row .fr-x { margin-left:6px; flex:none; padding:6px 10px; background:var(--paper); color:var(--muted);
+    border:2px solid var(--soft); box-shadow:none; font-size:12px; }
+  .fr-row .fr-x.arm { background:var(--accent); color:#fff; border-color:var(--ink); }
   .freq { max-width:520px; margin:0 auto 14px; border:2px solid var(--ink); border-left:6px solid var(--accent);
     border-radius:6px; background:var(--paper2); padding:11px 14px; font-size:13.5px; display:flex;
     align-items:center; gap:10px; flex-wrap:wrap; box-shadow:var(--shadow-sm); }
@@ -1233,8 +1236,24 @@ function renderFriends(){
     '<div class="av">' + escapeHtml(f.avatar || "\u{1F3AD}") + '</div>' +
     '<span class="pdot2" style="background:' + dot[f.presence || "off"] + '"></span>' +
     '<div class="nm">' + escapeHtml(f.name) + '<small>' + label[f.presence || "off"] + '</small></div>' +
-    '<button>' + (f.presence === "hand" ? "Start a scene" : "Cue &#127917;") + '</button></div>').join("");
+    '<button>' + (f.presence === "hand" ? "Start a scene" : "Cue &#127917;") + '</button>' +
+    '<button class="fr-x" title="Remove friend">&#215;</button></div>').join("");
   frEls.list.querySelectorAll(".fr-row").forEach(row => {
+    const x = row.querySelector(".fr-x");
+    x.onclick = (e) => {
+      e.stopPropagation();
+      if(!x.classList.contains("arm")){
+        x.classList.add("arm"); x.textContent = "sure?";
+        setTimeout(() => { x.classList.remove("arm"); x.innerHTML = "&#215;"; }, 3000);
+        return;
+      }
+      const p = getProfile();
+      if(ws && ws.readyState === 1 && p && p.session)
+        ws.send(JSON.stringify({ t:"unfriend", session: p.session, target: row.dataset.id }));
+      delete myFriends[row.dataset.id];   // optimistic — server confirms with a fresh list
+      renderFriends();
+      setStatus("Removed <b>" + escapeHtml(row.dataset.name) + "</b> from your friends.");
+    };
     row.querySelector("button").onclick = () => {
       if(matched) return;
       if(row.dataset.p === "hand") invite(row.dataset.id, row.dataset.name);
