@@ -197,13 +197,14 @@
   <div class="wrap">
     <div class="presence" id="presence" hidden></div>
 
+    <div class="gr" id="friendsPanel" hidden>
+      <div class="gr-head">Friends</div>
+      <div id="grFriends"></div>
+    </div>
+
     <div class="gr" id="greenroom" hidden>
       <div class="gr-head">Green Room <small id="grCount"></small></div>
       <div class="gr-list" id="grList"></div>
-      <div class="gr-friends" id="grFriendsWrap" hidden>
-        <div class="gr-subhead">Friends</div>
-        <div id="grFriends"></div>
-      </div>
       <div class="gr-foot">
         <button id="handBtn">&#127917; I'm up for a scene</button>
         <div class="hint" id="grHint">Raise your hand and you'll appear here.. camera stays off until a scene starts.</div>
@@ -585,9 +586,14 @@ async function handleSignal(msg){
         return;
       }
     }
+    teardownPeer();   // clean slate BEFORE setting scene state (startPeer no longer tears down)
     currentPartnerId = msg.partnerId || null;
     matched = true;
-    if(GREENROOM){ active = true; grBusy = false; handUp = false; els.stop.disabled = false; grEls.panel.hidden = true; renderGR(); }
+    active = true;
+    els.stop.disabled = false;
+    if(GREENROOM){ grBusy = false; handUp = false; grEls.panel.hidden = true; renderGR(); }
+    else { els.start.disabled = true; els.next.disabled = false; }   // friend-scenes from classic mode too
+    renderFriends();   // hides the friends panel while in a scene
     clearRemoteMsg();
     renderMode("scene");
     setStatus("Connected. <b>Go.</b>");
@@ -862,7 +868,7 @@ const frEls = {
   text: document.getElementById("friendReqText"),
   accept: document.getElementById("friendAccept"),
   decline: document.getElementById("friendDecline"),
-  wrap: document.getElementById("grFriendsWrap"),
+  wrap: document.getElementById("friendsPanel"),
   list: document.getElementById("grFriends"),
 };
 function requestFriends(){
@@ -870,7 +876,7 @@ function requestFriends(){
 }
 function renderFriends(){
   const friends = Object.values(myFriends).filter(f => !blocks.has(f.id));
-  if(!GREENROOM || !friends.length){ frEls.wrap.hidden = true; return; }
+  if(matched || !friends.length){ frEls.wrap.hidden = true; return; }   // both modes; hidden during a scene
   frEls.wrap.hidden = false;
   const dot = { hand:"#2e7d32", here:"#c79637", off:"#b7ab90" };
   const label = { hand:"hand's up now", here:"in the green room", off:"away" };
@@ -926,7 +932,9 @@ function grIdle(msg){
 }
 
 async function startPeer(initiator){
-  teardownPeer();
+  // NOTE: no teardownPeer() here — the matched handler tears down BEFORE setting
+  // scene state. (It used to run here and silently wiped matched/currentPartnerId
+  // right after they were set, breaking report-ids, drop-recovery, and add-friend.)
   pc = new RTCPeerConnection(ICE);
   localStream.getTracks().forEach(tr => pc.addTrack(tr, localStream));
 
@@ -977,6 +985,7 @@ function teardownPeer(){
   if(pc){ pc.ontrack = pc.onicecandidate = pc.onconnectionstatechange = null; pc.close(); pc = null; }
   els.remote.srcObject = null;
   els.remoteBox.classList.remove("expanded");   // collapse if partner left while expanded
+  renderFriends();   // scene over (or resetting) — re-show the friends panel
 }
 
 // ---- Buttons ------------------------------------------------------------
