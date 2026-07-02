@@ -101,6 +101,20 @@
   .gr-foot button { width:100%; }
   .gr-foot .hint { margin-top:8px; font-size:12px; color:var(--muted); text-align:center; line-height:1.45; }
   .gr-foot .hint a { color:var(--accent); font-weight:700; text-decoration:none; }
+  .gr-subhead { padding:8px 14px 4px; border-top:2px solid var(--ink); font-family:var(--font-display);
+    font-size:12px; letter-spacing:1.2px; text-transform:uppercase; color:var(--muted); background:var(--paper2); }
+  .fr-row { display:flex; align-items:center; gap:11px; padding:9px 14px; border-bottom:1px solid var(--soft); background:var(--paper2); }
+  .fr-row .av { width:32px; height:32px; flex:none; border:2px solid var(--ink); border-radius:50%;
+    background:var(--paper); display:flex; align-items:center; justify-content:center; font-size:17px; }
+  .fr-row .nm { font-weight:700; font-size:13.5px; }
+  .fr-row .nm small { display:block; font-weight:400; font-size:11px; color:var(--muted); }
+  .fr-row .pdot2 { width:8px; height:8px; border-radius:50%; flex:none; }
+  .fr-row button { margin-left:auto; padding:6px 12px; font-size:12px; }
+  .freq { max-width:520px; margin:0 auto 14px; border:2px solid var(--ink); border-left:6px solid var(--accent);
+    border-radius:6px; background:var(--paper2); padding:11px 14px; font-size:13.5px; display:flex;
+    align-items:center; gap:10px; flex-wrap:wrap; box-shadow:var(--shadow-sm); }
+  .freq[hidden] { display:none; }
+  .freq button { padding:7px 14px; font-size:12.5px; }
   .avatar-row { display:flex; gap:8px; flex-wrap:wrap; margin:10px 0 14px; }
   .avatar-row button { width:44px; height:44px; font-size:22px; padding:0; border:2px solid var(--soft);
     border-radius:50%; background:var(--paper); box-shadow:none; cursor:pointer; }
@@ -186,6 +200,10 @@
     <div class="gr" id="greenroom" hidden>
       <div class="gr-head">Green Room <small id="grCount"></small></div>
       <div class="gr-list" id="grList"></div>
+      <div class="gr-friends" id="grFriendsWrap" hidden>
+        <div class="gr-subhead">Scene partners</div>
+        <div id="grFriends"></div>
+      </div>
       <div class="gr-foot">
         <button id="handBtn">&#127917; I'm up for a scene</button>
         <div class="hint" id="grHint">Raise your hand and you'll appear here.. camera stays off until a scene starts.</div>
@@ -203,7 +221,14 @@
       <button id="startBtn">Start</button>
       <button id="nextBtn" class="secondary" disabled>Next partner</button>
       <button id="stopBtn" class="secondary" disabled>Stop</button>
+      <button id="friendBtn" class="secondary" style="display:none">&#11088; Add scene partner</button>
       <button id="reportBtn" class="secondary danger" style="display:none">Report / Block</button>
+    </div>
+
+    <div class="freq" id="friendReqBar" hidden>
+      <span id="friendReqText"></span>
+      <button id="friendAccept">Accept</button>
+      <button id="friendDecline" class="secondary">Not now</button>
     </div>
 
     <div class="banner">This is a brand new project. If no one's around, that's why. Best time to find a partner is <b>7&nbsp;PM Central</b>.</div>
@@ -524,6 +549,7 @@ function connectSignal(){
   ws.onopen = () => {
     if(GREENROOM && handUp && !matched) sendHand();          // reconnected — put the hand back up
     else if(active && !GREENROOM) ws.send(JSON.stringify({ t:"join", id: MY_ID }));
+    requestFriends();
   };
   ws.onmessage = (e) => handleSignal(JSON.parse(e.data));
   ws.onclose = () => {
@@ -566,6 +592,7 @@ async function handleSignal(msg){
     renderMode("scene");
     setStatus("Connected. <b>Go.</b>");
     els.report.style.display = "";
+    frEls.btn.style.display = (currentPartnerId && !myFriends[currentPartnerId]) ? "" : "none";
     await startPeer(msg.initiator);
     // The initiator picks the opening mode (Scene) and broadcasts it with synced values,
     // so both partners start in the same game with the same prompts.
@@ -589,12 +616,38 @@ async function handleSignal(msg){
   }
   else if(msg.t === "roster"){
     grRoster = msg.hands || [];
-    if(GREENROOM) renderGR();
+    if(GREENROOM){ renderGR(); requestFriends(); }   // roster moves = presence likely changed
   }
   else if(msg.t === "gone"){
     grBusy = false;
     setStatus("They just stepped out.. pick someone else.");
   }
+  else if(msg.t === "friend-req"){
+    if(msg.from && msg.from.id && !blocks.has(msg.from.id)){
+      pendingReqFrom = msg.from;
+      frEls.text.innerHTML = escapeHtml(msg.from.avatar || "\u{1F3AD}") + " <b>" + escapeHtml(msg.from.name) + "</b> wants to add you as a scene partner";
+      frEls.bar.hidden = false;
+    }
+  }
+  else if(msg.t === "friend-added"){
+    if(msg.friend && msg.friend.id){
+      myFriends[msg.friend.id] = msg.friend;
+      setStatus("\u{2B50} You and <b>" + escapeHtml(msg.friend.name) + "</b> are scene partners now.");
+      frEls.btn.style.display = "none";
+      requestFriends();
+    }
+  }
+  else if(msg.t === "friends"){
+    myFriends = {};
+    (msg.list || []).forEach(f => { myFriends[f.id] = f; });
+    renderFriends();
+  }
+  else if(msg.t === "cued"){
+    const n = (msg.from && msg.from.name) || "A scene partner";
+    setStatus("\u{1F3AD} <b>" + escapeHtml(n) + "</b> cued you for a scene" + (GREENROOM ? ".. raise your hand!" : "!"));
+  }
+  else if(msg.t === "cue-sent"){ setStatus("Cue sent \u{1F3AD} They'll get a ping."); }
+  else if(msg.t === "cue-cooldown"){ setStatus("Easy.. you cued them just a few minutes ago."); }
   else if(msg.t === "left"){
     if(GREENROOM){
       grIdle("Partner left.. your hand's back up.");
@@ -799,6 +852,64 @@ function renderGR(){
     : "Raise your hand and you'll appear here.. camera stays off until a scene starts.";
 }
 
+// ---- Scene partners (friends) + cues --------------------------------------
+// After a good scene, add your partner (they accept). Later, "cue" them: they
+// get a ping ("Matt cued you for a scene") in-app and on their phone.
+let myFriends = {}, pendingReqFrom = null;
+const frEls = {
+  btn: document.getElementById("friendBtn"),
+  bar: document.getElementById("friendReqBar"),
+  text: document.getElementById("friendReqText"),
+  accept: document.getElementById("friendAccept"),
+  decline: document.getElementById("friendDecline"),
+  wrap: document.getElementById("grFriendsWrap"),
+  list: document.getElementById("grFriends"),
+};
+function requestFriends(){
+  if(getProfile() && ws && ws.readyState === 1) ws.send(JSON.stringify({ t:"friends", id: MY_ID }));
+}
+function renderFriends(){
+  const friends = Object.values(myFriends).filter(f => !blocks.has(f.id));
+  if(!GREENROOM || !friends.length){ frEls.wrap.hidden = true; return; }
+  frEls.wrap.hidden = false;
+  const dot = { hand:"#2e7d32", here:"#c79637", off:"#b7ab90" };
+  const label = { hand:"hand's up now", here:"in the green room", off:"away" };
+  frEls.list.innerHTML = friends.map(f =>
+    '<div class="fr-row" data-id="' + escapeHtml(f.id) + '" data-name="' + escapeHtml(f.name) + '" data-p="' + f.presence + '">' +
+    '<div class="av">' + escapeHtml(f.avatar || "\u{1F3AD}") + '</div>' +
+    '<span class="pdot2" style="background:' + dot[f.presence || "off"] + '"></span>' +
+    '<div class="nm">' + escapeHtml(f.name) + '<small>' + label[f.presence || "off"] + '</small></div>' +
+    '<button>' + (f.presence === "hand" ? "Start a scene" : "Cue &#127917;") + '</button></div>').join("");
+  frEls.list.querySelectorAll(".fr-row").forEach(row => {
+    row.querySelector("button").onclick = () => {
+      if(matched) return;
+      if(row.dataset.p === "hand") invite(row.dataset.id, row.dataset.name);
+      else if(ws && ws.readyState === 1){ ws.send(JSON.stringify({ t:"cue", id: MY_ID, target: row.dataset.id })); }
+    };
+  });
+}
+frEls.btn.onclick = () => {
+  const go = () => {
+    const p = getProfile();
+    if(ws && ws.readyState === 1) ws.send(JSON.stringify({ t:"friend-req", id: MY_ID, name: p.name, avatar: p.avatar }));
+    frEls.btn.style.display = "none";
+    setStatus("Scene partner request sent..");
+  };
+  if(!getProfile()){ pendingAfterProfile = go; openProfileModal(); return; }
+  go();
+};
+frEls.accept.onclick = () => {
+  const go = () => {
+    const p = getProfile();
+    if(ws && ws.readyState === 1 && pendingReqFrom)
+      ws.send(JSON.stringify({ t:"friend-accept", id: MY_ID, me:{ name:p.name, avatar:p.avatar }, friend: pendingReqFrom }));
+    frEls.bar.hidden = true; pendingReqFrom = null;
+  };
+  if(!getProfile()){ pendingAfterProfile = go; openProfileModal(); return; }
+  go();
+};
+frEls.decline.onclick = () => { frEls.bar.hidden = true; pendingReqFrom = null; };
+
 // Back to the green room after a scene ends: camera off, hand back up.
 function grIdle(msg){
   grEls.panel.hidden = false;   // scene over — bring the room back
@@ -861,6 +972,8 @@ function teardownPeer(){
   matched = false;
   currentPartnerId = null;
   if(els.report) els.report.style.display = "none";
+  if(frEls.btn) frEls.btn.style.display = "none";
+  if(frEls.bar){ frEls.bar.hidden = true; pendingReqFrom = null; }
   if(pc){ pc.ontrack = pc.onicecandidate = pc.onconnectionstatechange = null; pc.close(); pc = null; }
   els.remote.srcObject = null;
   els.remoteBox.classList.remove("expanded");   // collapse if partner left while expanded
@@ -1048,7 +1161,7 @@ async function saveNotif(){
     if(!token){ return; }   // nativeSubscribe already set a descriptive status
     try {
       notif.status.textContent = "Saving...";
-      const res = await fetch(PUSH_API + "/subscribe-native", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ token, platform:"ios", prefs }) });
+      const res = await fetch(PUSH_API + "/subscribe-native", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ token, platform:"ios", prefs, id: MY_ID }) });
       notif.status.textContent = res.ok ? "Saved! You're all set." : ("Server rejected it (HTTP " + res.status + ")");
     } catch(e){ notif.status.textContent = "Network error: " + ((e && e.message) || e); }
     localStorage.setItem("notif-prefs", JSON.stringify(prefs));
@@ -1081,7 +1194,7 @@ async function saveNotif(){
     sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8(VAPID_PUBLIC_KEY) });
   }
   try {
-    const res = await fetch(PUSH_API + "/subscribe", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ subscription: sub.toJSON(), prefs }) });
+    const res = await fetch(PUSH_API + "/subscribe", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ subscription: sub.toJSON(), prefs, id: MY_ID }) });
     notif.status.textContent = res.ok ? "Saved! You're all set." : "Couldn't save, try again.";
   } catch(_){ notif.status.textContent = "Network error, try again."; }
   localStorage.setItem("notif-prefs", JSON.stringify(prefs));
