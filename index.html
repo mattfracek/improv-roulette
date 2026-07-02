@@ -559,7 +559,7 @@ async function handleSignal(msg){
     }
     currentPartnerId = msg.partnerId || null;
     matched = true;
-    if(GREENROOM){ active = true; grBusy = false; handUp = false; els.stop.disabled = false; renderGR(); }
+    if(GREENROOM){ active = true; grBusy = false; handUp = false; els.stop.disabled = false; grEls.panel.hidden = true; renderGR(); }
     clearRemoteMsg();
     renderMode("scene");
     setStatus("Connected. <b>Go.</b>");
@@ -735,6 +735,7 @@ function renderGR(){
 
 // Back to the green room after a scene ends: camera off, hand back up.
 function grIdle(msg){
+  grEls.panel.hidden = false;   // scene over — bring the room back
   teardownPeer();
   if(localStream){ localStream.getTracks().forEach(tr => tr.stop()); localStream = null; }
   els.local.srcObject = null;
@@ -855,7 +856,7 @@ els.stop.onclick = () => {
   resetPrompts();
   setRemoteMsg("No partner yet");
   if(GREENROOM){
-    handUp = false; grBusy = false; renderGR();
+    handUp = false; grBusy = false; grEls.panel.hidden = false; renderGR();
     setStatus("Scene ended. Raise your hand when you're ready for another.");
   } else {
     setStatus("Stopped. Tap Start to jump back in.");
