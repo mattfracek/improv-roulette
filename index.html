@@ -314,6 +314,7 @@
       <div class="modal-note" id="profileNote"></div>
       <div style="text-align:center; margin-top:10px;">
         <a href="#" id="profileSignout" style="display:none; color:var(--muted); font-size:12px; margin:0 10px;">Sign out</a>
+        <a href="#" id="clearBlocks" style="display:none; color:var(--muted); font-size:12px; margin:0 10px;"></a>
         <a href="#" id="profileDelete" style="display:none; color:var(--muted); font-size:12px; margin:0 10px;">Delete my profile</a>
       </div>
       <div id="deleteConfirm" hidden style="margin-top:12px; border:2px solid var(--accent); border-radius:6px; padding:14px; background:var(--paper); text-align:center;">
@@ -402,6 +403,11 @@ const ICE = { iceServers:[{ urls:"stun:stun.l.google.com:19302" }] };
 let MY_ID = (function(){ let v=localStorage.getItem("ipid"); if(!v){ v=(self.crypto&&crypto.randomUUID)?crypto.randomUUID():(Math.random().toString(36).slice(2)+Date.now().toString(36)); localStorage.setItem("ipid",v);} return v; })();
 let blocks = new Set(JSON.parse(localStorage.getItem("ipblocks")||"[]"));
 function saveBlocks(){ localStorage.setItem("ipblocks", JSON.stringify([...blocks])); }
+// id + display name for queue/invite messages, so your partner sees who you are.
+function idFields(){
+  const p = getProfile();
+  return p && p.name ? { id: MY_ID, name: p.name, avatar: p.avatar } : { id: MY_ID };
+}
 let currentPartnerId = null;
 // ------------------------------------------------------------------------
 
@@ -594,7 +600,7 @@ function connectSignal(){
   ws = new WebSocket(SIGNAL_URL);
   ws.onopen = () => {
     if(GREENROOM && handUp && !matched) sendHand();          // reconnected — put the hand back up
-    else if(active && !GREENROOM) ws.send(JSON.stringify({ t:"join", id: MY_ID }));
+    else if(active && !GREENROOM) ws.send(JSON.stringify({ t:"join", ...idFields() }));
     requestFriends();
   };
   ws.onmessage = (e) => handleSignal(JSON.parse(e.data));
@@ -642,7 +648,13 @@ async function handleSignal(msg){
     document.getElementById("cueBar").hidden = true;
     clearRemoteMsg();
     renderMode("scene");
-    setStatus("Connected. <b>Go.</b>");
+    if(msg.partnerName){
+      setStatus("Connected with " + escapeHtml(msg.partnerAvatar || "") + " <b>" + escapeHtml(msg.partnerName) + "</b>. <b>Go.</b>");
+      const lab = els.remoteBox.querySelector(".label");
+      if(lab) lab.textContent = msg.partnerName;
+    } else {
+      setStatus("Connected. <b>Go.</b>");
+    }
     els.report.style.display = "";
     frEls.btn.style.display = (currentPartnerId && !myFriends[currentPartnerId]) ? "" : "none";
     await startPeer(msg.initiator);
@@ -711,7 +723,7 @@ async function handleSignal(msg){
     } else {
       setStatus("Partner left. Finding a new one...");
       teardownPeer();
-      if(active) ws.send(JSON.stringify({ t:"join", id: MY_ID }));
+      if(active) ws.send(JSON.stringify({ t:"join", ...idFields() }));
     }
   }
 }
@@ -856,6 +868,9 @@ function openProfileModal(){
   }
   profileDelete.style.display = (p.session || p.name) ? "" : "none";
   document.getElementById("profileSignout").style.display = p.session ? "" : "none";
+  const cb = document.getElementById("clearBlocks");
+  if(blocks.size){ cb.style.display = ""; cb.textContent = "Unblock everyone (" + blocks.size + ")"; }
+  else cb.style.display = "none";
   document.getElementById("deleteConfirm").hidden = true;   // always start collapsed
   grEls.modal.style.display = "flex";
 }
@@ -920,6 +935,14 @@ grEls.save.onclick = async () => {
   if(handUp) sendHand();   // editing while your hand is up — refresh your roster entry
   if(pendingAfterProfile){ const f = pendingAfterProfile; pendingAfterProfile = null; f(); }
 };
+// Unblock safety valve — blocking was the only irreversible action in the app.
+document.getElementById("clearBlocks").onclick = (e) => {
+  e.preventDefault();
+  blocks.clear(); saveBlocks();
+  document.getElementById("clearBlocks").style.display = "none";
+  renderGR(); renderFriends(); requestFriends();
+  grEls.note.textContent = "Everyone unblocked.";
+};
 // Delete = two-step. The link only reveals a confirm box; nothing happens until
 // "Yes, delete everything" — so a stray tap can never nuke someone's friendships.
 profileDelete.onclick = (e) => {
@@ -977,7 +1000,7 @@ function invite(id, name){
   const go = () => {
     grBusy = true;
     setStatus("Starting a scene with <b>" + escapeHtml(name) + "</b>...");
-    if(ws && ws.readyState === 1) ws.send(JSON.stringify({ t:"invite", target: id, id: MY_ID }));
+    if(ws && ws.readyState === 1) ws.send(JSON.stringify({ t:"invite", target: id, ...idFields() }));
     setTimeout(() => { grBusy = false; }, 4000);   // safety valve if the invite goes nowhere
   };
   if(!getProfile()){ pendingAfterProfile = go; openProfileModal(); return; }
@@ -1190,6 +1213,8 @@ function teardownPeer(){
   if(pc){ pc.ontrack = pc.onicecandidate = pc.onconnectionstatechange = null; pc.close(); pc = null; }
   els.remote.srcObject = null;
   els.remoteBox.classList.remove("expanded");   // collapse if partner left while expanded
+  const rlab = els.remoteBox.querySelector(".label");
+  if(rlab) rlab.textContent = "Partner";        // reset the named tile
   renderFriends();   // scene over (or resetting) — re-show the friends panel
 }
 
@@ -1222,7 +1247,7 @@ els.start.onclick = async () => {
   els.next.disabled = false;
   els.stop.disabled = false;
   setStatus("Joining the room...");
-  if(ws && ws.readyState === 1) ws.send(JSON.stringify({ t:"join", id: MY_ID }));
+  if(ws && ws.readyState === 1) ws.send(JSON.stringify({ t:"join", ...idFields() }));
   else connectSignal();   // onopen sends join because active is true
 };
 
