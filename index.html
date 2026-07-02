@@ -120,7 +120,8 @@
   .gr-foot .hint a { color:var(--accent); font-weight:700; text-decoration:none; }
   header .acct-chip { display:flex; align-items:center; gap:7px; margin-left:auto; background:var(--paper2);
     border:2px solid var(--ink); border-radius:999px; padding:4px 12px 4px 5px; cursor:pointer;
-    font-family:var(--font-body); font-size:12.5px; font-weight:700; color:var(--ink); box-shadow:none; }
+    font-family:var(--font-body); font-size:12.5px; font-weight:700; color:var(--ink); box-shadow:none;
+    white-space:nowrap; flex:none; }
   header .acct-chip[hidden] { display:none; }
   header .acct-chip .av { width:24px; height:24px; border-radius:50%; display:flex; align-items:center;
     justify-content:center; font-size:14px; background:var(--paper); border:1px solid var(--soft); }
@@ -840,7 +841,11 @@ function setupGoogleButton(){
       document.getElementById("profileStep").hidden = false;
     }});
     googleBtnWrap.innerHTML = "";
-    window.google.accounts.id.renderButton(googleBtnWrap, { theme: "outline", size: "large", text: "continue_with", width: 330 });
+    // Render after layout so the button fits the modal exactly (it overflowed on phones at a fixed width).
+    requestAnimationFrame(() => {
+      const w = Math.min(400, Math.max(200, googleBtnWrap.offsetWidth || 300));
+      window.google.accounts.id.renderButton(googleBtnWrap, { theme: "outline", size: "large", text: "continue_with", width: w });
+    });
   }).catch(() => { googleBtnWrap.style.display = "none"; });
 }
 // Web Sign in with Apple (Apple JS, popup mode). Same Apple user id as the app,
