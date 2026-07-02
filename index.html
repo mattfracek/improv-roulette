@@ -654,6 +654,7 @@ async function handleSignal(msg){
   }
   else if(msg.t === "cue-sent"){ setStatus("Cue sent \u{1F3AD} They'll get a ping."); }
   else if(msg.t === "cue-cooldown"){ setStatus("Easy.. you cued them just a few minutes ago."); }
+  else if(msg.t === "friend-need-auth"){ ensureAccount(() => {}); }
   else if(msg.t === "left"){
     if(GREENROOM){
       grIdle("Partner left.. your hand's back up.");
@@ -724,9 +725,29 @@ const AVATARS = ["\u{1F3AD}","\u{1F604}","\u{1F920}","\u{1F575}\u{FE0F}","\u{1F4
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 function getProfile(){ try { return JSON.parse(localStorage.getItem("ipprofile")||"null"); } catch { return null; } }
 
-let pendingAppleToken = null;
+let pendingAppleToken = null, profileNeedsAuth = false;
 const appleBtn = document.getElementById("appleBtn");
 const profileDelete = document.getElementById("profileDelete");
+// Web Sign in with Apple (Apple JS, popup mode). Same Apple user id as the app,
+// so friendships made on the web and in the app belong to the same person.
+function loadAppleJS(){
+  return new Promise((res, rej) => {
+    if(window.AppleID) return res();
+    const s = document.createElement("script");
+    s.src = "https://appleid.cdn-apple.com/appleauth/static/jsapi/appleid/1/en_US/appleid.auth.js";
+    s.onload = res; s.onerror = rej;
+    document.head.appendChild(s);
+  });
+}
+async function webAppleSignIn(){
+  await loadAppleJS();
+  window.AppleID.auth.init({ clientId: "com.improvpractice.web", scope: "name", redirectURI: "https://improvpractice.com", usePopup: true });
+  const r = await window.AppleID.auth.signIn();
+  return {
+    token: r && r.authorization && r.authorization.id_token,
+    givenName: r && r.user && r.user.name && r.user.name.firstName,
+  };
+}
 function openProfileModal(){
   const p = getProfile() || {};
   grEls.name.value = p.name || "";
@@ -740,11 +761,13 @@ function openProfileModal(){
     b.onclick = () => { grEls.avatars.querySelectorAll("button").forEach(x => x.classList.remove("sel")); b.classList.add("sel"); };
     grEls.avatars.appendChild(b);
   });
-  // Native: sign in with Apple is required to enter the green room (not anonymous).
-  if(SIWA && !p.session){
+  // Apple sign-in is required: always on native, and on the web for anything
+  // friend-related (so a friends list can never be lost with browser data).
+  if((SIWA || profileNeedsAuth) && !p.session){
     appleBtn.style.display = "";
     appleBtn.disabled = false;
     appleBtn.innerHTML = "&#63743; Continue with Apple";
+    if(profileNeedsAuth && !SIWA) grEls.note.textContent = "Friends are saved to your Apple sign-in, so you'll never lose them.";
   } else {
     appleBtn.style.display = "none";
   }
@@ -752,12 +775,19 @@ function openProfileModal(){
   grEls.modal.style.display = "flex";
 }
 appleBtn.onclick = async () => {
-  if(!SIWA){ grEls.note.textContent = "Apple sign-in isn't available here."; return; }
   try {
-    const r = await SIWA.authorize({ clientId: "com.improvpractice.app", redirectURI: "https://improvpractice.com", scopes: "name" });
-    pendingAppleToken = (r && r.response && r.response.identityToken) || null;
+    let token = null, givenName = null;
+    if(SIWA){
+      const r = await SIWA.authorize({ clientId: "com.improvpractice.app", redirectURI: "https://improvpractice.com", scopes: "name" });
+      token = (r && r.response && r.response.identityToken) || null;
+      givenName = r && r.response && r.response.givenName;
+    } else {
+      const r = await webAppleSignIn();
+      token = r.token; givenName = r.givenName;
+    }
+    pendingAppleToken = token;
     if(!pendingAppleToken){ grEls.note.textContent = "Sign-in didn't complete.. try again."; return; }
-    if(r.response.givenName && !grEls.name.value) grEls.name.value = r.response.givenName;
+    if(givenName && !grEls.name.value) grEls.name.value = givenName;
     appleBtn.innerHTML = "Signed in &#10003;";
     appleBtn.disabled = true;
     grEls.note.textContent = "";
@@ -768,8 +798,8 @@ grEls.save.onclick = async () => {
   if(!name){ grEls.note.textContent = "Give yourself a stage name first."; return; }
   const avatar = (grEls.avatars.querySelector("button.sel") || {}).textContent || AVATARS[0];
   const prev = getProfile() || {};
-  if(SIWA){
-    // Native: the profile lives on the server, tied to the Apple sign-in.
+  if(SIWA || profileNeedsAuth || prev.session){
+    // The profile lives on the server, tied to the Apple sign-in.
     if(!pendingAppleToken && !prev.session){ grEls.note.textContent = "Tap Continue with Apple first."; return; }
     grEls.save.disabled = true; grEls.note.textContent = "Saving...";
     try {
@@ -785,6 +815,9 @@ grEls.save.onclick = async () => {
       localStorage.setItem("ipprofile", JSON.stringify(merged));
       if(merged.uid) MY_ID = merged.uid;
       pendingAppleToken = null;
+      profileNeedsAuth = false;
+      if(ws && ws.readyState === 1) ws.send(JSON.stringify({ t:"hello", session: merged.session }));   // bind this socket to the signed-in id
+      requestFriends();
     } catch(e){ grEls.save.disabled = false; grEls.note.textContent = "Couldn't reach the server.. try again."; return; }
   } else {
     localStorage.setItem("ipprofile", JSON.stringify({ ...prev, name, avatar }));
@@ -872,7 +905,17 @@ const frEls = {
   list: document.getElementById("grFriends"),
 };
 function requestFriends(){
-  if(getProfile() && ws && ws.readyState === 1) ws.send(JSON.stringify({ t:"friends", id: MY_ID }));
+  const p = getProfile();
+  if(p && p.session && ws && ws.readyState === 1) ws.send(JSON.stringify({ t:"friends", session: p.session }));
+}
+// Friendships require a real account (Apple sign-in) so they can never be lost
+// with browser data. Playing stays loose — only friend actions hit this gate.
+function ensureAccount(cb){
+  const p = getProfile();
+  if(p && p.session){ cb(); return; }
+  profileNeedsAuth = true;
+  pendingAfterProfile = cb;
+  openProfileModal();
 }
 function renderFriends(){
   const friends = Object.values(myFriends).filter(f => !blocks.has(f.id));
@@ -890,30 +933,22 @@ function renderFriends(){
     row.querySelector("button").onclick = () => {
       if(matched) return;
       if(row.dataset.p === "hand") invite(row.dataset.id, row.dataset.name);
-      else if(ws && ws.readyState === 1){ ws.send(JSON.stringify({ t:"cue", id: MY_ID, target: row.dataset.id })); }
+      else if(ws && ws.readyState === 1){ const p = getProfile(); ws.send(JSON.stringify({ t:"cue", session: p && p.session, target: row.dataset.id })); }
     };
   });
 }
-frEls.btn.onclick = () => {
-  const go = () => {
-    const p = getProfile();
-    if(ws && ws.readyState === 1) ws.send(JSON.stringify({ t:"friend-req", id: MY_ID, name: p.name, avatar: p.avatar }));
-    frEls.btn.style.display = "none";
-    setStatus("Friend request sent..");
-  };
-  if(!getProfile()){ pendingAfterProfile = go; openProfileModal(); return; }
-  go();
-};
-frEls.accept.onclick = () => {
-  const go = () => {
-    const p = getProfile();
-    if(ws && ws.readyState === 1 && pendingReqFrom)
-      ws.send(JSON.stringify({ t:"friend-accept", id: MY_ID, me:{ name:p.name, avatar:p.avatar }, friend: pendingReqFrom }));
-    frEls.bar.hidden = true; pendingReqFrom = null;
-  };
-  if(!getProfile()){ pendingAfterProfile = go; openProfileModal(); return; }
-  go();
-};
+frEls.btn.onclick = () => ensureAccount(() => {
+  const p = getProfile();
+  if(ws && ws.readyState === 1) ws.send(JSON.stringify({ t:"friend-req", session: p.session }));
+  frEls.btn.style.display = "none";
+  setStatus("Friend request sent..");
+});
+frEls.accept.onclick = () => ensureAccount(() => {
+  const p = getProfile();
+  if(ws && ws.readyState === 1 && pendingReqFrom)
+    ws.send(JSON.stringify({ t:"friend-accept", session: p.session }));
+  frEls.bar.hidden = true; pendingReqFrom = null;
+});
 frEls.decline.onclick = () => { frEls.bar.hidden = true; pendingReqFrom = null; };
 
 // Back to the green room after a scene ends: camera off, hand back up.
