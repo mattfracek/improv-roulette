@@ -651,6 +651,9 @@ async function handleSignal(msg){
       else ws.send(JSON.stringify({ t:"next" }));
       return;
     }
+    // A previously-stopped stream is dead — treat it as absent so the camera
+    // actually restarts (a dead stream left "Connected" scenes with black tiles).
+    if(localStream && localStream.getTracks().every(t => t.readyState === "ended")){ localStream = null; }
     // Green Room: camera stays off while waiting — it comes on now, at scene start.
     if(!localStream){
       try {
@@ -683,6 +686,16 @@ async function handleSignal(msg){
     }
     els.report.style.display = "";
     frEls.btn.style.display = (currentPartnerId && !myFriends[currentPartnerId]) ? "" : "none";
+    els.localBox.classList.remove("waiting");   // camera is on — never leave the off-hint over a live tile
+    // Scene watchdog: if no partner video arrives, this match is a phantom
+    // (zombie socket, dropped signaling). Bail out instead of trapping the user.
+    clearTimeout(sceneWatchdog);
+    sceneWatchdog = setTimeout(() => {
+      if(!matched || els.remote.srcObject) return;
+      if(ws && ws.readyState === 1) ws.send(JSON.stringify({ t:"leave" }));
+      if(GREENROOM) grIdle("That connection didn't come together.. your hand's back up.");
+      else { teardownPeer(); setStatus("That connection didn't come together. Tap Start to try again."); active = false; els.start.disabled = false; els.next.disabled = true; els.stop.disabled = true; }
+    }, 15000);
     await startPeer(msg.initiator);
     // The initiator picks the opening mode (Scene) and broadcasts it with synced values,
     // so both partners start in the same game with the same prompts.
@@ -813,7 +826,7 @@ const grEls = {
   save: document.getElementById("profileSave"),
   note: document.getElementById("profileNote"),
 };
-let handUp = false, grRoster = [], grBusy = false, pendingAfterProfile = null;
+let handUp = false, grRoster = [], grBusy = false, pendingAfterProfile = null, sceneWatchdog = null;
 const AVATARS = ["\u{1F3AD}","\u{1F604}","\u{1F920}","\u{1F575}\u{FE0F}","\u{1F475}","\u{1F9D9}","\u{1F916}","\u{1F451}","\u{1F414}","\u{1F996}"];
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 function getProfile(){ try { return JSON.parse(localStorage.getItem("ipprofile")||"null"); } catch { return null; } }
@@ -1267,7 +1280,7 @@ async function startPeer(initiator){
   pc = new RTCPeerConnection(ICE);
   localStream.getTracks().forEach(tr => pc.addTrack(tr, localStream));
 
-  pc.ontrack = (e) => { els.remote.srcObject = e.streams[0]; };
+  pc.ontrack = (e) => { els.remote.srcObject = e.streams[0]; clearTimeout(sceneWatchdog); };
   pc.onicecandidate = (e) => {
     if(e.candidate) ws.send(JSON.stringify({ t:"sig", candidate:e.candidate }));
   };
@@ -1306,6 +1319,7 @@ async function onRemoteSignal(msg){
 }
 
 function teardownPeer(){
+  clearTimeout(sceneWatchdog);
   matched = false;
   currentPartnerId = null;
   if(els.report) els.report.style.display = "none";
