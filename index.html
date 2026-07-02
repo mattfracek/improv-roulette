@@ -63,6 +63,8 @@
   .am-you button { margin-left:auto; background:var(--paper); border:2px solid var(--soft); border-radius:6px;
     padding:5px 10px; cursor:pointer; font-size:11.5px; color:var(--muted); box-shadow:none; font-family:var(--font-body); }
   .am-you button:hover { border-color:var(--ink); color:var(--ink); }
+  .am-invite { padding:10px 14px; border-top:2px solid var(--ink); background:var(--paper2); }
+  .am-invite button { width:100%; font-size:13px; padding:9px; }
   header .bell { margin-left:auto; background:none; border:none; color:var(--ink); font-size:18px; cursor:pointer; padding:4px 10px 4px 4px; line-height:1; }
   header .bell:hover { color:var(--accent); }
   /* notifications modal */
@@ -231,6 +233,7 @@
       </div>
       <div class="gr-subhead">Friends</div>
       <div id="grFriends"></div>
+      <div class="am-invite"><button id="inviteBtn">&#128279; Invite a friend by link</button></div>
     </div>
   </header>
 
@@ -266,6 +269,12 @@
       <span id="friendReqText"></span>
       <button id="friendAccept">Accept</button>
       <button id="friendDecline" class="secondary">Not now</button>
+    </div>
+
+    <div class="freq" id="inviteBar" hidden>
+      <span>&#127917; You've been invited to be friends on Improv Practice</span>
+      <button id="inviteAccept">Accept</button>
+      <button id="inviteIgnore" class="secondary">Ignore</button>
     </div>
 
     <div class="freq" id="cueBar" hidden>
@@ -1192,6 +1201,49 @@ document.getElementById("cueGo").onclick = () => {
   }
 };
 document.getElementById("cueDismiss").onclick = () => { document.getElementById("cueBar").hidden = true; };
+
+// ---- Friend-invite links ---------------------------------------------------
+// "Invite a friend by link": mint a signed 7-day link, share/copy it. Opening
+// the link shows an accept banner; accepting (after sign-in) makes you friends.
+document.getElementById("inviteBtn").onclick = () => ensureAccount(async () => {
+  try {
+    const p = getProfile();
+    const r = await fetch(API_BASE + "/invite-link", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ session: p.session }) });
+    const d = await r.json();
+    if(!d.ok){ setStatus("Couldn't make an invite link.. try again."); return; }
+    const link = "https://improvpractice.com/?invite=" + d.token;
+    document.getElementById("acctMenu").hidden = true;
+    if(navigator.share){
+      try { await navigator.share({ title: "Improv Practice", text: "Be my scene partner on Improv Practice", url: link }); setStatus("Invite sent \u{1F3AD}"); return; } catch(_){}
+    }
+    try { await navigator.clipboard.writeText(link); setStatus("Invite link copied \u{1F4CB} Good for 7 days.. text it to a friend."); }
+    catch(_){ setStatus("Your invite link: " + link); }
+  } catch(_){ setStatus("Couldn't make an invite link.. try again."); }
+});
+(function(){
+  const sp = new URLSearchParams(location.search);
+  const tok = sp.get("invite");
+  if(!tok) return;
+  sp.delete("invite");
+  try { history.replaceState(null, "", location.pathname + (sp.toString() ? "?" + sp.toString() : "")); } catch(_){}
+  document.getElementById("inviteBar").hidden = false;
+  document.getElementById("inviteIgnore").onclick = () => { document.getElementById("inviteBar").hidden = true; };
+  document.getElementById("inviteAccept").onclick = () => ensureAccount(async () => {
+    try {
+      const p = getProfile();
+      const r = await fetch(API_BASE + "/accept-invite", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ token: tok, session: p.session }) });
+      const d = await r.json();
+      document.getElementById("inviteBar").hidden = true;
+      if(d.ok && d.friend){
+        myFriends[d.friend.id] = d.friend;
+        setStatus("\u{2B50} You and <b>" + escapeHtml(d.friend.name) + "</b> are friends now.");
+        requestFriends(); renderFriends();
+      } else {
+        setStatus(d.error === "self" ? "That's your own invite link \u{1F604}" : "That invite link didn't work.. it may have expired.");
+      }
+    } catch(_){ setStatus("Couldn't reach the server.. try again."); }
+  });
+})();
 
 // Back to the green room after a scene ends: camera off, hand back up.
 function grIdle(msg){
