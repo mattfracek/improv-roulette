@@ -139,6 +139,8 @@
     align-items:center; gap:10px; flex-wrap:wrap; box-shadow:var(--shadow-sm); }
   .freq[hidden] { display:none; }
   .freq button { padding:7px 14px; font-size:12.5px; }
+  .benefit { display:flex; align-items:flex-start; gap:10px; font-size:13.5px; line-height:1.45; margin:9px 0; }
+  .benefit span { flex:none; font-size:16px; }
   .avatar-row { display:flex; gap:8px; flex-wrap:wrap; margin:10px 0 14px; }
   .avatar-row button { width:44px; height:44px; font-size:22px; padding:0; border:2px solid var(--soft);
     border-radius:50%; background:var(--paper); box-shadow:none; cursor:pointer; }
@@ -302,14 +304,24 @@
 
   <div class="modal-backdrop" id="profileModal">
     <div class="modal">
-      <div class="modal-title">Who's on stage?</div>
-      <div class="modal-sub">Pick a stage name and a mask so people in the green room know who they're starting a scene with.</div>
-      <button id="appleBtn" style="display:none; width:100%; background:#000; color:#fff; border:2px solid #000; border-radius:6px; padding:12px; font-size:15px; font-weight:700; cursor:pointer; margin-bottom:10px;">&#63743; Continue with Apple</button>
-      <div id="googleBtnWrap" style="display:none; margin-bottom:14px;"></div>
-      <input class="profile-name" id="profileName" maxlength="24" placeholder="Stage name (e.g. Matt F)" autocomplete="off">
-      <div class="avatar-row" id="avatarRow"></div>
-      <div class="modal-actions">
-        <button id="profileSave">Enter the green room</button>
+      <div id="authStep" hidden>
+        <div class="modal-title">Make it yours</div>
+        <div class="modal-sub">Sign in free and the good stuff sticks:</div>
+        <div class="benefit"><span>&#11088;</span> Keep friends.. add the people you love playing with</div>
+        <div class="benefit"><span>&#127917;</span> Cue a friend whenever you feel like running scenes</div>
+        <div class="benefit"><span>&#128227;</span> Appear by name in the green room</div>
+        <button id="appleBtn" style="display:none; width:100%; background:#000; color:#fff; border:2px solid #000; border-radius:6px; padding:12px; font-size:15px; font-weight:700; cursor:pointer; margin:14px 0 10px;">&#63743; Continue with Apple</button>
+        <div id="googleBtnWrap" style="display:none; margin-bottom:10px;"></div>
+        <div style="text-align:center; color:var(--muted); font-size:11.5px;">Free.. sign-in just proves you're you. No spam, ever.</div>
+      </div>
+      <div id="profileStep" hidden>
+        <div class="modal-title">Who's on stage?</div>
+        <div class="modal-sub">Pick a stage name and a mask so people in the green room know who they're starting a scene with.</div>
+        <input class="profile-name" id="profileName" maxlength="24" placeholder="Stage name (e.g. Matt F)" autocomplete="off">
+        <div class="avatar-row" id="avatarRow"></div>
+        <div class="modal-actions">
+          <button id="profileSave">Enter the green room</button>
+        </div>
       </div>
       <div class="modal-note" id="profileNote"></div>
       <div style="text-align:center; margin-top:10px;">
@@ -813,9 +825,10 @@ function setupGoogleButton(){
         const c = JSON.parse(atob(resp.credential.split(".")[1].replace(/-/g,"+").replace(/_/g,"/")));
         if(c.given_name && !grEls.name.value) grEls.name.value = c.given_name;
       } catch(_){}
-      googleBtnWrap.innerHTML = '<div style="text-align:center;font-weight:700;padding:11px;border:2px solid var(--ink);border-radius:6px;background:#fff;">Signed in with Google &#10003;</div>';
-      appleBtn.style.display = "none";
       grEls.note.textContent = "";
+      // signed in — on to the fun part
+      document.getElementById("authStep").hidden = true;
+      document.getElementById("profileStep").hidden = false;
     }});
     googleBtnWrap.innerHTML = "";
     window.google.accounts.id.renderButton(googleBtnWrap, { theme: "outline", size: "large", text: "continue_with", width: 330 });
@@ -854,17 +867,17 @@ function openProfileModal(){
     b.onclick = () => { grEls.avatars.querySelectorAll("button").forEach(x => x.classList.remove("sel")); b.classList.add("sel"); };
     grEls.avatars.appendChild(b);
   });
-  // Apple sign-in is required: always on native, and on the web for anything
-  // friend-related (so a friends list can never be lost with browser data).
-  if((SIWA || profileNeedsAuth) && !p.session){
+  // Two steps, one job each: the pitch + sign-in first (when auth is needed),
+  // then the fun part (stage name + mask). Sign-in is required on native always,
+  // and on the web for anything friend-related.
+  const needAuth = (SIWA || profileNeedsAuth) && !p.session && !pendingAuth;
+  document.getElementById("authStep").hidden = !needAuth;
+  document.getElementById("profileStep").hidden = needAuth;
+  if(needAuth){
     appleBtn.style.display = "";
     appleBtn.disabled = false;
     appleBtn.innerHTML = "&#63743; Continue with Apple";
     setupGoogleButton();
-    if(profileNeedsAuth && !SIWA) grEls.note.textContent = "Friends are saved to your account, so you'll never lose them. Use the same sign-in everywhere.";
-  } else {
-    appleBtn.style.display = "none";
-    googleBtnWrap.style.display = "none";
   }
   profileDelete.style.display = (p.session || p.name) ? "" : "none";
   document.getElementById("profileSignout").style.display = p.session ? "" : "none";
@@ -888,10 +901,10 @@ appleBtn.onclick = async () => {
     if(!token){ grEls.note.textContent = "Sign-in didn't complete.. try again."; return; }
     pendingAuth = { path: "/verify-apple", token };
     if(givenName && !grEls.name.value) grEls.name.value = givenName;
-    appleBtn.innerHTML = "Signed in &#10003;";
-    appleBtn.disabled = true;
-    googleBtnWrap.style.display = "none";
     grEls.note.textContent = "";
+    // signed in — on to the fun part
+    document.getElementById("authStep").hidden = true;
+    document.getElementById("profileStep").hidden = false;
   } catch(e){ grEls.note.textContent = "Sign-in was cancelled."; }
 };
 grEls.save.onclick = async () => {
