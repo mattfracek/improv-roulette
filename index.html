@@ -238,8 +238,10 @@
         <div><b id="amName"></b><small id="amState"></small></div>
         <button id="amEdit">&#9998; edit</button>
       </div>
+      <div id="grReqsWrap" hidden><div class="gr-subhead">Wants to be friends</div><div id="grReqs"></div></div>
       <div class="gr-subhead">Friends</div>
       <div id="grFriends"></div>
+      <div id="grCompanyWrap" hidden><div class="gr-subhead">The Company</div><div id="grCompany"></div></div>
       <div class="am-invite"><button id="inviteBtn">&#128279; Invite a friend by link</button></div>
     </div>
   </header>
@@ -290,7 +292,11 @@
       <button id="cueDismiss" class="secondary">Not now</button>
     </div>
 
-    <div class="banner">This is a brand new project. If no one's around, that's why. Best time to find a partner is <b>7&nbsp;PM Central</b>.</div>
+    <div class="banner" id="jamBanner">
+      <span id="jamCountdown">The nightly jam starts at <b>7 PM Central</b>.</span><br>
+      <button id="rsvpBtn" style="margin-top:9px; font-size:13px; padding:9px 18px;">&#127903;&#65039; I'll be there tonight</button>
+      <span id="rsvpCount" style="display:block; margin-top:7px;"></span>
+    </div>
 
     <div class="solo-link"><a href="/solo/index.html">&#127917;&nbsp; No one around? Practice solo &rarr;</a></div>
 
@@ -803,6 +809,19 @@ async function handleSignal(msg){
     if(typeof msg.count === "number") lastOnline = msg.count;
     lastWaiting = msg.waiting || 0;
     updatePresence();
+    const rc = msg.rsvp || 0;
+    const rce = document.getElementById("rsvpCount");
+    if(rce) rce.innerHTML = rc ? "\u{1F39F}\u{FE0F} <b>" + rc + "</b> going tonight" : "";
+  }
+  else if(msg.t === "friend-req-in"){
+    (msg.list || []).forEach(r => { if(r && r.id) pendingReqs[r.id] = r; });
+    renderCompany();
+    const names = Object.values(pendingReqs).map(r => r.name).slice(0, 2).join(", ");
+    if(names) setStatus("\u{1F3AD} <b>" + escapeHtml(names) + "</b> wants to be friends.. check your profile menu.");
+  }
+  else if(msg.t === "company"){
+    companyList = msg.list || [];
+    renderCompany();
   }
   else if(msg.t === "roster"){
     grRoster = msg.hands || [];
@@ -822,9 +841,11 @@ async function handleSignal(msg){
   else if(msg.t === "friend-added"){
     if(msg.friend && msg.friend.id){
       myFriends[msg.friend.id] = msg.friend;
+      delete pendingReqs[msg.friend.id];
       setStatus("\u{2B50} You and <b>" + escapeHtml(msg.friend.name) + "</b> are friends now.");
       frEls.btn.style.display = "none";
       requestFriends();
+      renderCompany();
     }
   }
   else if(msg.t === "friends"){
@@ -1080,6 +1101,12 @@ grEls.save.onclick = async () => {
   grEls.modal.style.display = "none";
   if(handUp) sendHand();   // editing while your hand is up — refresh your roster entry
   if(pendingAfterProfile){ const f = pendingAfterProfile; pendingAfterProfile = null; f(); }
+  // One-time: right after their first profile, offer the pings that make the
+  // community work (someone's waiting / nightly jam). Never nags again.
+  if(!localStorage.getItem("notif-prompted")){
+    localStorage.setItem("notif-prompted", "1");
+    setTimeout(() => { try { openNotif(); } catch(_){} }, 700);
+  }
 };
 // Unblock safety valve — blocking was the only irreversible action in the app.
 document.getElementById("clearBlocks").onclick = (e) => {
@@ -1276,7 +1303,7 @@ document.getElementById("signinBtn").onclick = () => {
 document.getElementById("acctChip").onclick = () => {
   const m = document.getElementById("acctMenu");
   m.hidden = !m.hidden;
-  if(!m.hidden){ renderFriends(); requestFriends(); }   // fresh presence every open
+  if(!m.hidden){ renderFriends(); requestFriends(); requestCompany(); renderCompany(); }   // fresh everything every open
 };
 document.getElementById("amEdit").onclick = () => {
   document.getElementById("acctMenu").hidden = true;
@@ -1360,6 +1387,84 @@ document.getElementById("inviteBtn").onclick = () => ensureAccount(async () => {
     } catch(_){ setStatus("Couldn't reach the server.. try again."); }
   });
 })();
+
+// ---- Tonight's jam: countdown + RSVP ----------------------------------------
+// Concentrate humans into the same hour: a live countdown, an "I'll be there"
+// RSVP with a public count, and a 10-minutes-before push to everyone who RSVP'd.
+function centralToday(){ return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date()); }
+function jamTick(){
+  const el = document.getElementById("jamCountdown"); if(!el) return;
+  const now = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Chicago" }));
+  const t = new Date(now); t.setHours(19, 0, 0, 0);
+  const end = new Date(now); end.setHours(20, 0, 0, 0);
+  if(now >= t && now < end){
+    el.innerHTML = "The nightly jam is <b>ON right now</b> \u{1F3AD}";
+  } else {
+    if(now >= end) t.setDate(t.getDate() + 1);
+    const mins = Math.max(1, Math.round((t - now) / 60000)), h = Math.floor(mins / 60), m = mins % 60;
+    el.innerHTML = "The nightly jam starts in <b>" + (h ? h + "h " : "") + m + "m</b> (7 PM Central)";
+  }
+  const btn = document.getElementById("rsvpBtn");
+  if(localStorage.getItem("rsvp-" + centralToday())){ btn.disabled = true; btn.innerHTML = "You're in for tonight \u{1F39F}\u{FE0F}"; }
+  else { btn.disabled = false; btn.innerHTML = "\u{1F39F}\u{FE0F} I'll be there tonight"; }
+}
+jamTick(); setInterval(jamTick, 30000);
+document.getElementById("rsvpBtn").onclick = () => {
+  const p = getProfile();
+  if(ws && ws.readyState === 1) ws.send(JSON.stringify({ t:"rsvp", id: MY_ID, name: p ? p.name : "" }));
+  localStorage.setItem("rsvp-" + centralToday(), "1");
+  jamTick();
+};
+
+// ---- The Company: browse the community + async friend requests ----------------
+// Friendship no longer requires being online at the same time: browse accounts,
+// send a request, they accept whenever they're next around.
+let pendingReqs = {}, companyList = [];
+let requestedIds = new Set(JSON.parse(localStorage.getItem("freq-sent") || "[]"));
+function requestCompany(){
+  const p = getProfile();
+  if(p && p.session && ws && ws.readyState === 1) ws.send(JSON.stringify({ t:"company", session: p.session }));
+}
+function agoLabel(ts){
+  if(!ts) return "";
+  const d = Date.now() - ts;
+  if(d < 90 * 60000) return "seen recently";
+  if(d < 24 * 3600e3) return "seen today";
+  return "seen " + Math.round(d / 86400e3) + "d ago";
+}
+function renderCompany(){
+  const rw = document.getElementById("grReqsWrap"), rl = document.getElementById("grReqs");
+  const reqs = Object.values(pendingReqs).filter(r => !blocks.has(r.id));
+  rw.hidden = !reqs.length;
+  rl.innerHTML = reqs.map(r =>
+    '<div class="fr-row" data-id="' + escapeHtml(r.id) + '"><div class="av">' + escapeHtml(r.avatar || "\u{1F3AD}") + '</div>' +
+    '<div class="nm">' + escapeHtml(r.name) + '<small>wants to be friends</small></div>' +
+    '<button data-act="acc">Accept</button><button class="fr-x" data-act="dec">&#215;</button></div>').join("");
+  rl.querySelectorAll("[data-act]").forEach(b => {
+    b.onclick = () => {
+      const id = b.closest(".fr-row").dataset.id, p = getProfile();
+      if(!(p && p.session && ws && ws.readyState === 1)) return;
+      ws.send(JSON.stringify({ t: b.dataset.act === "acc" ? "friend-accept-async" : "friend-decline-async", session: p.session, from: id }));
+      delete pendingReqs[id]; renderCompany();
+    };
+  });
+  const cw = document.getElementById("grCompanyWrap"), cl = document.getElementById("grCompany");
+  const people = companyList.filter(u => u.id !== MY_ID && !myFriends[u.id] && !blocks.has(u.id) && !pendingReqs[u.id]).slice(0, 30);
+  cw.hidden = !people.length;
+  cl.innerHTML = people.map(u =>
+    '<div class="fr-row" data-id="' + escapeHtml(u.id) + '"><div class="av">' + escapeHtml(u.avatar || "\u{1F3AD}") + '</div>' +
+    '<div class="nm">' + escapeHtml(u.name) + '<small>' + agoLabel(u.last) + '</small></div>' +
+    (requestedIds.has(u.id) ? '<button disabled>Requested \u{2713}</button>' : '<button>Add friend</button>') + '</div>').join("");
+  cl.querySelectorAll("button:not([disabled])").forEach(b => {
+    b.onclick = () => {
+      const id = b.closest(".fr-row").dataset.id, p = getProfile();
+      if(!(p && p.session && ws && ws.readyState === 1)) return;
+      ws.send(JSON.stringify({ t:"friend-req-async", session: p.session, target: id }));
+      requestedIds.add(id); localStorage.setItem("freq-sent", JSON.stringify([...requestedIds]));
+      b.textContent = "Requested \u{2713}"; b.disabled = true;
+    };
+  });
+}
 
 // Back to the green room after a scene ends: camera off, hand back up.
 function grIdle(msg){
