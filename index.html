@@ -149,7 +149,8 @@
   .freq[hidden] { display:none; }
   .freq button { padding:7px 14px; font-size:12.5px; }
   .benefit { display:flex; align-items:flex-start; gap:10px; font-size:13.5px; line-height:1.45; margin:9px 0; }
-  .benefit span { flex:none; font-size:16px; }
+  .benefit .bi { flex:none; font-size:16px; }
+  .benefit .bt { flex:1; min-width:0; }
   .avatar-row { display:flex; gap:8px; flex-wrap:wrap; margin:10px 0 14px; }
   .avatar-row button { width:44px; height:44px; font-size:22px; padding:0; border:2px solid var(--soft);
     border-radius:50%; background:var(--paper); box-shadow:none; cursor:pointer; }
@@ -334,10 +335,10 @@
       <div id="authStep" hidden>
         <div class="modal-title">Make it yours</div>
         <div class="modal-sub">Sign in free and the good stuff sticks:</div>
-        <div class="benefit"><span>&#129309;</span> Browse <b>the community</b>.. see every improviser here and send friend requests, even when they're offline</div>
-        <div class="benefit"><span>&#127917;</span> <b>Cue a friend</b> whenever you feel like running scenes.. they get a ping</div>
-        <div class="benefit"><span>&#11088;</span> Keep the people you love playing with.. friends are saved to your account forever</div>
-        <div class="benefit"><span>&#128227;</span> Appear by name in the green room and the community</div>
+        <div class="benefit"><span class="bi">&#129309;</span><span class="bt">Browse <b>the community</b>.. see every improviser here and send friend requests, even when they're offline</span></div>
+        <div class="benefit"><span class="bi">&#127917;</span><span class="bt"><b>Cue a friend</b> whenever you feel like running scenes.. they get a ping</span></div>
+        <div class="benefit"><span class="bi">&#11088;</span><span class="bt">Keep the people you love playing with.. friends are saved to your account forever</span></div>
+        <div class="benefit"><span class="bi">&#128227;</span><span class="bt">Appear by name in the green room and the community</span></div>
         <button id="appleBtn" style="display:none; width:100%; background:#000; color:#fff; border:2px solid #000; border-radius:6px; padding:12px; font-size:15px; font-weight:700; cursor:pointer; margin:14px 0 10px;">&#63743; Continue with Apple</button>
         <div id="googleBtnWrap" style="display:none; margin-bottom:10px;"></div>
         <div style="text-align:center; color:var(--muted); font-size:11.5px;">Free.. sign-in just proves you're you. No spam, ever.</div>
