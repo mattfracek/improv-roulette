@@ -864,6 +864,15 @@ async function handleSignal(msg){
     }
     setStatus("\u{1F3AD} <b>" + escapeHtml(n) + "</b> cued you for a scene!");
   }
+  else if(msg.t === "cue-answered"){
+    // Your friend showed up (you may be mid-scene with someone else) — one tap switches to them.
+    if(msg.from && msg.from.id){
+      lastCueFrom = msg.from;
+      document.getElementById("cueText").innerHTML = "\u{1F3AD} <b>" + escapeHtml(msg.from.name) + "</b> answered your cue.. they're in the green room";
+      document.getElementById("cueBar").hidden = false;
+      setStatus("\u{1F3AD} <b>" + escapeHtml(msg.from.name) + "</b> is in the green room!");
+    }
+  }
   else if(msg.t === "cue-sent"){
     setStatus(GREENROOM
       ? "Cue sent \u{1F3AD} Your hand's up, so the scene starts the moment they answer."
@@ -1333,14 +1342,22 @@ frEls.accept.onclick = () => ensureAccount(() => {
 frEls.decline.onclick = () => { frEls.bar.hidden = true; pendingReqFrom = null; };
 document.getElementById("cueGo").onclick = () => {
   document.getElementById("cueBar").hidden = true;
+  // Mid-scene? You chose your friend — wrap this one first.
+  if(matched){
+    if(ws && ws.readyState === 1) ws.send(JSON.stringify({ t:"leave" }));
+    grIdle("Switching to your friend..");
+  }
   // Best case: the person who cued you has their hand up — start the scene with
-  // THEM directly. Otherwise make yourself available so they can find you.
+  // THEM directly. Otherwise raise your hand and let them know you showed up.
   if(GREENROOM){
     if(lastCueFrom && lastCueFrom.id && grRoster.some(h => h.id === lastCueFrom.id)){
       invite(lastCueFrom.id, lastCueFrom.name || "your friend");
       return;
     }
     if(!handUp) grEls.hand.onclick();
+    const p = getProfile();
+    if(lastCueFrom && lastCueFrom.id && p && p.session && ws && ws.readyState === 1)
+      ws.send(JSON.stringify({ t:"cue-answer", session: p.session, to: lastCueFrom.id }));
   } else {
     els.start.onclick();   // queue — the bridge connects you to their raised hand
   }
