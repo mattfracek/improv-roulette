@@ -820,6 +820,7 @@ async function handleSignal(msg){
     if(rce) rce.innerHTML = rc ? "\u{1F39F}\u{FE0F} <b>" + rc + "</b> going tonight" : "";
   }
   else if(msg.t === "friend-req-in"){
+    pendingReqs = {};   // server sends the full current list — replace, so cancellations vanish live
     (msg.list || []).forEach(r => { if(r && r.id) pendingReqs[r.id] = r; });
     renderCompany();
     const names = Object.values(pendingReqs).map(r => r.name).slice(0, 2).join(", ");
@@ -1464,31 +1465,47 @@ function renderCompany(){
     '<div class="fr-row" data-id="' + escapeHtml(r.id) + '"><div class="av">' + escapeHtml(r.avatar || "\u{1F3AD}") + '</div>' +
     '<div class="nm">' + escapeHtml(r.name) + '<small>wants to be friends</small></div>' +
     '<button data-act="acc">Accept</button><button class="fr-x" data-act="dec">&#215;</button></div>').join("");
-  rl.querySelectorAll("[data-act]").forEach(b => {
-    b.onclick = () => {
-      const id = b.closest(".fr-row").dataset.id, p = getProfile();
-      if(!(p && p.session && ws && ws.readyState === 1)) return;
-      ws.send(JSON.stringify({ t: b.dataset.act === "acc" ? "friend-accept-async" : "friend-decline-async", session: p.session, from: id }));
-      delete pendingReqs[id]; renderCompany();
-    };
-  });
   const cw = document.getElementById("grCompanyWrap"), cl = document.getElementById("grCompany");
   const people = companyList.filter(u => u.id !== MY_ID && !myFriends[u.id] && !blocks.has(u.id) && !pendingReqs[u.id]).slice(0, 30);
   cw.hidden = !people.length;
   cl.innerHTML = people.map(u =>
     '<div class="fr-row" data-id="' + escapeHtml(u.id) + '"><div class="av">' + escapeHtml(u.avatar || "\u{1F3AD}") + '</div>' +
     '<div class="nm">' + escapeHtml(u.name) + '<small>' + agoLabel(u.last) + '</small></div>' +
-    (requestedIds.has(u.id) ? '<button disabled>Requested \u{2713}</button>' : '<button>Add friend</button>') + '</div>').join("");
-  cl.querySelectorAll("button:not([disabled])").forEach(b => {
-    b.onclick = () => {
-      const id = b.closest(".fr-row").dataset.id, p = getProfile();
-      if(!(p && p.session && ws && ws.readyState === 1)) return;
-      ws.send(JSON.stringify({ t:"friend-req-async", session: p.session, target: id }));
-      requestedIds.add(id); localStorage.setItem("freq-sent", JSON.stringify([...requestedIds]));
-      b.textContent = "Requested \u{2713}"; b.disabled = true;
-    };
-  });
+    (requestedIds.has(u.id) ? '<button class="secondary" title="Tap to cancel the request">Requested \u{2713}</button>' : '<button>Add friend</button>') + '</div>').join("");
 }
+// Bindings live on the CONTAINERS (bound once) so re-renders can never orphan a
+// click, and a mid-reconnect socket gives feedback instead of eating the tap.
+function wsReady(){
+  if(ws && ws.readyState === 1) return true;
+  setStatus("Reconnecting.. give it a second and try that again.");
+  return false;
+}
+document.getElementById("grReqs").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-act]"); if(!b) return;
+  const row = b.closest(".fr-row"); const id = row && row.dataset.id;
+  const p = getProfile();
+  if(!id || !(p && p.session) || !wsReady()) return;
+  ws.send(JSON.stringify({ t: b.dataset.act === "acc" ? "friend-accept-async" : "friend-decline-async", session: p.session, from: id }));
+  delete pendingReqs[id];
+  renderCompany();
+});
+document.getElementById("grCompany").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if(!b) return;
+  const row = b.closest(".fr-row"); const id = row && row.dataset.id;
+  const p = getProfile();
+  if(!id || !(p && p.session) || !wsReady()) return;
+  if(requestedIds.has(id)){
+    // tap again to un-request
+    ws.send(JSON.stringify({ t:"friend-unreq-async", session: p.session, target: id }));
+    requestedIds.delete(id);
+    setStatus("Friend request cancelled.");
+  } else {
+    ws.send(JSON.stringify({ t:"friend-req-async", session: p.session, target: id }));
+    requestedIds.add(id);
+  }
+  localStorage.setItem("freq-sent", JSON.stringify([...requestedIds]));
+  renderCompany();
+});
 
 // Back to the green room after a scene ends: camera off, hand back up.
 function grIdle(msg){
