@@ -38,6 +38,9 @@
     --shadow:4px 4px 0 var(--ink); --shadow-sm:3px 3px 0 var(--ink);
   }
   * { box-sizing:border-box; margin:0; padding:0; }
+  /* No sideways wiggle, ever — stray overflow (e.g. sign-in library artifacts)
+     can't widen the page. Everything fits or gets clipped, never scrolled. */
+  html, body { max-width:100%; overflow-x:hidden; overscroll-behavior-x:none; }
   body { font-family:var(--font-body); background:var(--paper); color:var(--ink);
          min-height:100vh; display:flex; flex-direction:column; }
   /* paper grain */
