@@ -925,6 +925,12 @@ function updatePresence(){
     el.hidden = true;                                      // alone — keep it honest, show nothing
   }
 }
+const _updatePresenceInner = updatePresence;
+updatePresence = function(){
+  _updatePresenceInner();
+  const ol = document.querySelector(".online-line");
+  if(ol) ol.style.display = els.presence && !els.presence.hidden ? "none" : "";
+};
 if(els.presence) els.presence.onclick = () => { if(!active && els.presence.classList.contains("live")) els.start.onclick(); };
 
 // ---- Green Room (choose-your-partner mode — the App Store-compliant flow) ----
