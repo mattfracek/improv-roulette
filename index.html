@@ -1336,7 +1336,11 @@ document.getElementById("amEdit").onclick = () => {
 document.addEventListener("click", (e) => {
   const m = document.getElementById("acctMenu");
   if(m.hidden) return;
-  if(!m.contains(e.target) && !document.getElementById("acctChip").contains(e.target)) m.hidden = true;
+  // Use the event's original path: in-menu clicks often re-render the row they
+  // hit, detaching the target — contains() would then wrongly read "outside"
+  // and fold the menu mid-spree (e.g. adding several friends in a row).
+  const path = e.composedPath ? e.composedPath() : [e.target];
+  if(!path.includes(m) && !path.includes(document.getElementById("acctChip"))) m.hidden = true;
 });
 frEls.btn.onclick = () => ensureAccount(() => {
   const p = getProfile();
