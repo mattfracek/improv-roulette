@@ -344,6 +344,7 @@
         <div class="benefit"><span class="bi">&#11088;</span><span class="bt">Keep the people you love playing with.. friends are saved to your account forever</span></div>
         <div class="benefit"><span class="bi">&#128227;</span><span class="bt">Appear by name in the green room and the community</span></div>
         <button id="appleBtn" style="display:none; width:100%; background:#000; color:#fff; border:2px solid #000; border-radius:6px; padding:12px; font-size:15px; font-weight:700; cursor:pointer; margin:14px 0 10px;">&#63743; Continue with Apple</button>
+        <button id="googleNativeBtn" style="display:none; width:100%; background:#fff; color:#3c4043; border:2px solid var(--soft); border-radius:6px; padding:12px; font-size:15px; font-weight:700; cursor:pointer; margin-bottom:10px;">Continue with Google</button>
         <div id="googleBtnWrap" style="display:none; margin-bottom:10px;"></div>
         <div style="text-align:center; color:var(--muted); font-size:11.5px;">Free.. sign-in just proves you're you. No spam, ever.</div>
       </div>
@@ -975,6 +976,26 @@ function loadGoogleJS(){
     document.head.appendChild(s);
   });
 }
+const GOOGLE_IOS_CLIENT_ID = "PENDING";   // iOS OAuth client id (paste when created)
+const SL = (typeof isNative !== "undefined" && isNative && window.Capacitor && window.Capacitor.Plugins) ? (window.Capacitor.Plugins.SocialLogin || null) : null;
+let slReady = false;
+document.getElementById("googleNativeBtn").onclick = async () => {
+  if(!SL || GOOGLE_IOS_CLIENT_ID === "PENDING"){ grEls.note.textContent = "Google sign-in isn't available here yet."; return; }
+  try {
+    if(!slReady){ await SL.initialize({ google: { iOSClientId: GOOGLE_IOS_CLIENT_ID } }); slReady = true; }
+    const r = await SL.login({ provider: "google", options: { scopes: ["profile"] } });
+    const token = r && r.result && r.result.idToken;
+    if(!token){ grEls.note.textContent = "Sign-in didn't complete.. try again."; return; }
+    pendingAuth = { path: "/verify-google", token };
+    try {
+      const c = JSON.parse(atob(token.split(".")[1].replace(/-/g,"+").replace(/_/g,"/")));
+      if(c.given_name && !grEls.name.value) grEls.name.value = c.given_name;
+    } catch(_){}
+    grEls.note.textContent = "";
+    document.getElementById("authStep").hidden = true;
+    document.getElementById("profileStep").hidden = false;
+  } catch(e){ grEls.note.textContent = "Sign-in was cancelled."; }
+};
 function setupGoogleButton(){
   // Web only, and only once a real client id exists.
   if(SIWA || GOOGLE_CLIENT_ID === "PENDING"){ googleBtnWrap.style.display = "none"; return; }
@@ -1044,6 +1065,9 @@ function openProfileModal(){
     appleBtn.disabled = false;
     appleBtn.innerHTML = "&#63743; Continue with Apple";
     setupGoogleButton();
+    document.getElementById("googleNativeBtn").style.display = (SL && GOOGLE_IOS_CLIENT_ID !== "PENDING") ? "" : "none";
+  } else {
+    document.getElementById("googleNativeBtn").style.display = "none";
   }
   profileDelete.style.display = (p.session || p.name) ? "" : "none";
   document.getElementById("profileSignout").style.display = p.session ? "" : "none";
@@ -1481,7 +1505,7 @@ function renderCompany(){
   cl.innerHTML = people.map(u =>
     '<div class="fr-row" data-id="' + escapeHtml(u.id) + '"><div class="av">' + escapeHtml(u.avatar || "\u{1F3AD}") + '</div>' +
     '<div class="nm">' + escapeHtml(u.name) + '<small>' + agoLabel(u.last) + '</small></div>' +
-    (requestedIds.has(u.id) ? '<button class="secondary" title="Tap to cancel the request">Requested \u{2713}</button>' : '<button>Add friend</button>') + '</div>').join("");
+    ((requestedIds.has(u.id) || u.req) ? '<button class="secondary" title="Tap to cancel the request">Requested \u{2713}</button>' : '<button>Add friend</button>') + '</div>').join("");
 }
 // Bindings live on the CONTAINERS (bound once) so re-renders can never orphan a
 // click, and a mid-reconnect socket gives feedback instead of eating the tap.
@@ -1504,10 +1528,12 @@ document.getElementById("grCompany").addEventListener("click", (e) => {
   const row = b.closest(".fr-row"); const id = row && row.dataset.id;
   const p = getProfile();
   if(!id || !(p && p.session) || !wsReady()) return;
-  if(requestedIds.has(id)){
+  const entry = companyList.find(u => u.id === id);
+  if(requestedIds.has(id) || (entry && entry.req)){
     // tap again to un-request
     ws.send(JSON.stringify({ t:"friend-unreq-async", session: p.session, target: id }));
     requestedIds.delete(id);
+    if(entry) entry.req = 0;
     setStatus("Friend request cancelled.");
   } else {
     ws.send(JSON.stringify({ t:"friend-req-async", session: p.session, target: id }));
