@@ -940,7 +940,7 @@ function updatePresence(){
     // people are here but BUSY — honest, and live scenes are the best social proof
     el.className = "presence soft";
     el.innerHTML = (lastScenes === 1 ? "A scene is happening" : lastScenes + " scenes are happening") +
-                   " right now \u{1F3AD} raise your hand and you'll be seen the moment it ends";
+                   " right now \u{1F3AD} raise your hand and anyone free can start one with you";
     el.hidden = false;
   } else if(lastOnline > 1){
     const others = lastOnline - 1;
