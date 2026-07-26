@@ -443,7 +443,17 @@ const SIGNAL_URL = isLocal ? "ws://localhost:8787" : WORKER_URL;
 // Optional: only open at a set time (e.g. 7pm). Off by default for testing.
 const OPEN_WINDOW = { enabled:false, startHour:19, endHour:23 };
 
-const ICE = { iceServers:[{ urls:"stun:stun.l.google.com:19302" }] };
+let ICE = { iceServers:[{ urls:"stun:stun.l.google.com:19302" }] };   // fallback until TURN creds load
+let iceFetchedAt = 0;
+async function freshICE(){
+  if(Date.now() - iceFetchedAt < 30 * 60 * 1000) return ICE;
+  try {
+    const r = await fetch(API_BASE + "/turn", { method:"POST" });
+    const d = await r.json();
+    if(d.ok && d.iceServers){ ICE = { iceServers: d.iceServers }; iceFetchedAt = Date.now(); }
+  } catch(_){}
+  return ICE;
+}
 
 // Anonymous stable id so Block/Report persist without accounts.
 let MY_ID = (function(){ let v=localStorage.getItem("ipid"); if(!v){ v=(self.crypto&&crypto.randomUUID)?crypto.randomUUID():(Math.random().toString(36).slice(2)+Date.now().toString(36)); localStorage.setItem("ipid",v);} return v; })();
@@ -666,6 +676,7 @@ document.addEventListener("visibilitychange", () => {
 });
 
 let signalChain = Promise.resolve();
+let currentPartnerName = null;
 // UI invariant, enforced after every processed message: in green-room mode the
 // room is visible unless we're GENUINELY in a scene. No interleaving of async
 // handlers can strand the page in a hidden-room zombie state anymore.
@@ -768,8 +779,10 @@ async function handleSignal(msg){
     }
     teardownPeer();   // clean slate BEFORE setting scene state (startPeer no longer tears down)
     currentPartnerId = msg.partnerId || null;
+    currentPartnerName = msg.partnerName || null;
     matched = true;
     active = true;
+    rejoinTarget = null;   // we're connected — stop chasing anyone
     els.stop.disabled = false;
     if(GREENROOM){ grBusy = false; handUp = false; grEls.panel.hidden = true; renderGR(); }
     else { els.start.disabled = true; els.next.disabled = false; }   // friend-scenes from classic mode too
@@ -833,7 +846,7 @@ async function handleSignal(msg){
   }
   else if(msg.t === "roster"){
     grRoster = msg.hands || [];
-    if(GREENROOM){ renderGR(); requestFriends(); }   // roster moves = presence likely changed
+    if(GREENROOM){ renderGR(); requestFriends(); attemptRejoin(); }   // roster moves = presence likely changed
   }
   else if(msg.t === "gone"){
     grBusy = false;
@@ -888,7 +901,13 @@ async function handleSignal(msg){
   else if(msg.t === "friend-need-auth"){ ensureAccount(() => {}); }
   else if(msg.t === "left"){
     if(GREENROOM){
-      grIdle("Partner left.. your hand's back up.");
+      if(msg.reason === "lost" && currentPartnerId){
+        // They didn't leave — the connection died. Chase them for 60s.
+        rejoinTarget = { id: currentPartnerId, name: currentPartnerName || "your partner", until: Date.now() + 60000 };
+        grIdle("Lost the connection with <b>" + escapeHtml(rejoinTarget.name) + "</b>.. trying to bring them back.");
+      } else {
+        grIdle("Partner left.. your hand's back up.");
+      }
     } else {
       setStatus("Partner left. Finding a new one...");
       teardownPeer();
@@ -958,6 +977,7 @@ const grEls = {
   note: document.getElementById("profileNote"),
 };
 let handUp = false, grRoster = [], grBusy = false, pendingAfterProfile = null, sceneWatchdog = null;
+let rejoinTarget = null;   // { id, name, until } — sticky scenes: try to restore a LOST partner
 const AVATARS = ["\u{1F3AD}","\u{1F604}","\u{1F920}","\u{1F575}\u{FE0F}","\u{1F475}","\u{1F9D9}","\u{1F916}","\u{1F451}","\u{1F414}","\u{1F996}"];
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 function getProfile(){ try { return JSON.parse(localStorage.getItem("ipprofile")||"null"); } catch { return null; } }
@@ -1543,6 +1563,19 @@ document.getElementById("grCompany").addEventListener("click", (e) => {
   renderCompany();
 });
 
+// Sticky scenes: if we LOST someone (vs them leaving), re-invite the moment
+// their hand reappears — both sides do this, first invite wins, zero taps.
+function attemptRejoin(){
+  if(!rejoinTarget) return;
+  if(Date.now() > rejoinTarget.until){
+    setStatus("Couldn't bring <b>" + escapeHtml(rejoinTarget.name) + "</b> back.. your hand's still up.");
+    rejoinTarget = null;
+    return;
+  }
+  if(matched || grBusy) return;
+  if(grRoster.some(h => h.id === rejoinTarget.id)) invite(rejoinTarget.id, rejoinTarget.name);
+}
+
 // Back to the green room after a scene ends: camera off, hand back up.
 function grIdle(msg){
   grEls.panel.hidden = false;   // scene over — bring the room back
@@ -1562,7 +1595,7 @@ async function startPeer(initiator){
   // NOTE: no teardownPeer() here — the matched handler tears down BEFORE setting
   // scene state. (It used to run here and silently wiped matched/currentPartnerId
   // right after they were set, breaking report-ids, drop-recovery, and add-friend.)
-  pc = new RTCPeerConnection(ICE);
+  pc = new RTCPeerConnection(await freshICE());
   localStream.getTracks().forEach(tr => pc.addTrack(tr, localStream));
 
   pc.ontrack = (e) => { els.remote.srcObject = e.streams[0]; clearTimeout(sceneWatchdog); };
@@ -1572,8 +1605,9 @@ async function startPeer(initiator){
   pc.onconnectionstatechange = () => {
     if(["failed","disconnected","closed"].includes(pc.connectionState) && active && matched){
       if(GREENROOM){
-        ws.send(JSON.stringify({ t:"leave" }));
-        grIdle("Connection dropped.. your hand's back up.");
+        ws.send(JSON.stringify({ t:"leave", reason:"lost" }));
+        if(currentPartnerId) rejoinTarget = { id: currentPartnerId, name: currentPartnerName || "your partner", until: Date.now() + 60000 };
+        grIdle(rejoinTarget ? "Connection dropped.. trying to bring <b>" + escapeHtml(rejoinTarget.name) + "</b> back." : "Connection dropped.. your hand's back up.");
         return;
       }
       setStatus("Connection dropped. Finding a new partner...");
@@ -1660,6 +1694,7 @@ els.next.onclick = () => {
 };
 
 els.stop.onclick = () => {
+  rejoinTarget = null;   // deliberate stop — stop chasing anyone
   active = false;
   teardownPeer();
   // Fully release the camera + mic so the device light goes off (Start re-acquires next time).
