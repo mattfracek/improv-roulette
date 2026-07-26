@@ -828,6 +828,7 @@ async function handleSignal(msg){
     setOnline(msg.count);
     if(typeof msg.count === "number") lastOnline = msg.count;
     lastWaiting = msg.waiting || 0;
+    lastScenes = msg.scenes || 0;
     updatePresence();
     const rc = msg.rsvp || 0;
     const rce = document.getElementById("rsvpCount");
@@ -926,7 +927,7 @@ function setOnline(n){
 //  - someone is actively waiting in the queue  -> strong "tap to jump in" (guaranteed instant match)
 //  - others are online but nobody's waiting yet -> soft "start a scene and they'll see you waiting"
 // Hidden entirely while you're in the queue/scene, or when you're truly alone.
-let lastOnline = 0, lastWaiting = 0;
+let lastOnline = 0, lastWaiting = 0, lastScenes = 0;
 function updatePresence(){
   const el = els.presence; if(!el) return;
   if(typeof GREENROOM !== "undefined" && GREENROOM){ el.hidden = true; return; }   // the roster IS the presence UI
@@ -935,11 +936,17 @@ function updatePresence(){
     el.className = "presence live";
     el.innerHTML = '<span class="pdot"></span>Someone\'s here right now, waiting to run a scene.. tap to jump in';
     el.hidden = false;
+  } else if(lastScenes > 0){
+    // people are here but BUSY — honest, and live scenes are the best social proof
+    el.className = "presence soft";
+    el.innerHTML = (lastScenes === 1 ? "A scene is happening" : lastScenes + " scenes are happening") +
+                   " right now \u{1F3AD} raise your hand and you'll be seen the moment it ends";
+    el.hidden = false;
   } else if(lastOnline > 1){
     const others = lastOnline - 1;
     el.className = "presence soft";
     el.innerHTML = '<b>' + others + '</b> ' + (others === 1 ? "other person is" : "others are") +
-                   " here right now.. start a scene and they'll see you're waiting";
+                   " browsing right now.. start a scene and they'll see you're waiting";
     el.hidden = false;
   } else {
     el.hidden = true;                                      // alone — keep it honest, show nothing
