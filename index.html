@@ -1003,6 +1003,20 @@ function getProfile(){ try { return JSON.parse(localStorage.getItem("ipprofile")
     try { history.replaceState(null, "", location.pathname + (sp.toString() ? "?" + sp.toString() : "")); } catch(_){}
   }
 })();
+// Meta pixel — double-gated: NEVER in the native app, and ONLY for sessions
+// that arrived from an ad (?ref=fbad). Organic visitors load zero Meta code.
+function fbadSession(){ return sessionStorage.getItem("arrival-ref") === "fbad"; }
+(function(){
+  if(typeof isNative !== "undefined" && isNative) return;
+  if(!fbadSession()) return;
+  !function(f,b,e,v,n,t,sc){if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+  n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;
+  n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;
+  t.src=v;sc=b.getElementsByTagName(e)[0];sc.parentNode.insertBefore(t,sc)}(window,
+  document,'script','https://connect.facebook.net/en_US/fbevents.js');
+  fbq('init', '1585952736451837');
+  fbq('track', 'PageView');
+})();
 let pendingAuth = null, profileNeedsAuth = false;   // pendingAuth = { path, token } from Apple or Google
 const appleBtn = document.getElementById("appleBtn");
 const googleBtnWrap = document.getElementById("googleBtnWrap");
@@ -1176,6 +1190,7 @@ grEls.save.onclick = async () => {
         localStorage.setItem("arrival-ref-counted", "1");
         fetch(API_BASE + "/ref", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ source: aref, kind: "signup" }) }).catch(()=>{});
       }
+      if(typeof fbq === "function" && fbadSession()) fbq('track', 'CompleteRegistration');
       if(ws && ws.readyState === 1) ws.send(JSON.stringify({ t:"hello", session: merged.session }));   // bind this socket to the signed-in id
       requestFriends();
       renderFriends();   // the identity chip updates immediately
