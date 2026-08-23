@@ -990,6 +990,19 @@ const AVATARS = ["\u{1F3AD}","\u{1F604}","\u{1F920}","\u{1F575}\u{FE0F}","\u{1F4
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 function getProfile(){ try { return JSON.parse(localStorage.getItem("ipprofile")||"null"); } catch { return null; } }
 
+// First-party source attribution: ?ref=name is counted once (visit) and again
+// on first sign-up. No cookies, no identity, nothing sent to third parties.
+(function(){
+  const sp = new URLSearchParams(location.search);
+  const r = sp.get("ref");
+  if(r){
+    sessionStorage.setItem("arrival-ref", r);
+    try { localStorage.setItem("arrival-ref-sticky", r); } catch(_){}
+    fetch(API_BASE + "/ref", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ source: r, kind: "visit" }) }).catch(()=>{});
+    sp.delete("ref");
+    try { history.replaceState(null, "", location.pathname + (sp.toString() ? "?" + sp.toString() : "")); } catch(_){}
+  }
+})();
 let pendingAuth = null, profileNeedsAuth = false;   // pendingAuth = { path, token } from Apple or Google
 const appleBtn = document.getElementById("appleBtn");
 const googleBtnWrap = document.getElementById("googleBtnWrap");
@@ -1158,6 +1171,11 @@ grEls.save.onclick = async () => {
       if(merged.uid) MY_ID = merged.uid;
       pendingAuth = null;
       profileNeedsAuth = false;
+      const aref = localStorage.getItem("arrival-ref-sticky");
+      if(aref && !localStorage.getItem("arrival-ref-counted")){
+        localStorage.setItem("arrival-ref-counted", "1");
+        fetch(API_BASE + "/ref", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ source: aref, kind: "signup" }) }).catch(()=>{});
+      }
       if(ws && ws.readyState === 1) ws.send(JSON.stringify({ t:"hello", session: merged.session }));   // bind this socket to the signed-in id
       requestFriends();
       renderFriends();   // the identity chip updates immediately
