@@ -495,6 +495,33 @@ const RELATIONSHIPS = [
   "Teammates","Bandmates","Classmates","Landlord and tenant","Driver and passenger","Captain and crew",
   "Master and apprentice","Babysitter and child","Nurse and patient","Therapist and client",
   "Interviewer and applicant","Tour guide and tourist","Boss and assistant","Mentor and student","Partners in crime",
+  "Bank teller and robber","Pilot and copilot","Astronaut and mission control","King and jester","Queen and servant",
+  "Knight and squire","Pirate captain and stowaway","Detective and suspect","Lawyer and client","Judge and defendant",
+  "Celebrity and bodyguard","Director and actor","Author and editor","Chef and food critic","Waiter and picky customer",
+  "Barber and regular","Tattoo artist and first-timer","Realtor and buyer","Mechanic and car owner","Vet and pet owner",
+  "Lifeguard and swimmer","Camp counselor and camper","Scout leader and scout","Principal and troublemaker",
+  "Librarian and loud patron","Museum guard and art thief","Magician and volunteer","Clown and birthday kid",
+  "Fortune teller and skeptic","Ghost and new homeowner","Alien and abductee","Superhero and sidekick",
+  "Villain and henchman","Wizard and apprentice","Genie and wisher","Angel and devil",
+  "Zookeeper and escaped-animal witness","Farmer and city cousin","Fisherman and first mate","Park ranger and lost hiker",
+  "Flight attendant and nervous flyer","Taxi driver and tourist","Train conductor and fare dodger","Valet and sports car owner",
+  "Doorman and resident","Bellhop and hotel guest","Maid and messy guest","Butler and new money",
+  "Bartender and regular","Bouncer and VIP","DJ and wedding guest","Band leader and new drummer",
+  "Choir director and tone-deaf singer","Dance partners","Chess rivals","Poker buddies",
+  "Gym trainer and new client","Physical therapist and athlete","Dentist and nervous patient","Surgeon and anesthesiologist",
+  "Paramedic and bystander","Firefighter and cat owner","News anchor and field reporter","Weatherman and producer",
+  "Talk show host and guest","Podcast cohosts","Influencer and manager","Photographer and model",
+  "Street performer and tourist","Mime and heckler","Carnival worker and prize winner","Psychic and walk-in",
+  "Pawnbroker and desperate seller","Auctioneer and bidder","Door-to-door salesman and homeowner","Telemarketer and lonely callee",
+  "Repairman and impatient customer","Plumber and homeowner","Electrician and apprentice","Exterminator and tenant",
+  "Mail carrier and dog owner","Delivery driver and wrong address","Barista and screenwriter","Food truck owner and health inspector",
+  "Crossing guard and jaywalker","Meter maid and pleading driver","Security guard and intern","Night shift coworkers",
+  "Carpool partners","Airplane seatmates","Bunkmates at camp","Lab partners",
+  "Debate opponents","Co-captains","Understudies","Rival food truck owners",
+  "Groom and best man","Bride and maid of honor","Wedding officiant and cold-footed groom","Divorce lawyers in love",
+  "Matchmaker and client","Blind date chaperone and dater","Long-distance couple reuniting","High school sweethearts at a reunion",
+  "Step-siblings meeting for the first time","Godparent and godchild","Great-aunt and niece","Family reunion strangers",
+  "Heir and estate lawyer","Gold prospector and claim jumper","Lighthouse keeper and shipwreck survivor","Beekeeper and allergic neighbor",
 ];
 const LOCATIONS = [
   "A sinking ship","The DMV","A haunted house","A spaceship","A grocery store at 3am","A wedding reception",
@@ -505,6 +532,30 @@ const LOCATIONS = [
   "A film set","A cave","An art gallery opening","A waiting room","A fishing boat","A treehouse","A laundromat",
   "A medieval castle","A border checkpoint","A rooftop garden","A cruise ship buffet","A planetarium",
   "A small-town parade","An elevator between floors","A roadside motel",
+  "A lighthouse in a storm","A silent library","A crowded subway car","An empty stadium","A corn maze",
+  "A pumpkin patch","A Christmas tree lot","A fireworks stand","A tollbooth at midnight","A truck stop at dawn",
+  "A 24-hour gym","An abandoned mall","A food court","A karaoke bar","A bowling alley",
+  "A mini-golf course","A go-kart track","A paintball field","An escape room","A trampoline park",
+  "A water park wave pool","A county fair","A petting zoo","An aquarium","A butterfly garden",
+  "A botanical greenhouse","A beekeeper's yard","A Christmas market","A renaissance faire","A comic convention",
+  "A dog park","A cat cafe","A tattoo parlor","A barbershop","A nail salon",
+  "A pawn shop","A thrift store","A record store","A comic book shop","An antique mall",
+  "A hardware store","A mattress store","A car dealership","A driving school car","A car wash",
+  "A gas station at 2am","A parking garage","A rest stop","A ferry deck","A sleeper train car",
+  "An airport security line","A baggage claim","A customs checkpoint","A hotel lobby","A honeymoon suite",
+  "A hostel bunk room","A bed and breakfast","A mountain cabin","A fire lookout tower","A national park trailhead",
+  "A fishing pier","A duck pond","A community garden","A rooftop at sunrise","A fire escape",
+  "A basement during a tornado warning","An attic full of boxes","A storage unit","A garage sale","An open house",
+  "A model home","A construction site","A scaffolding platform","A window-washing rig","A crane cockpit",
+  "A recording studio","A radio station booth","A TV news set","A game show stage","A talent show audition",
+  "A magic show backstage","An orchestra pit","A ballet studio","A boxing ring corner","A wrestling locker room",
+  "A dugout during a rain delay","A golf course sand trap","A ski lodge","A chairlift in fog","An ice rink",
+  "A curling sheet","A swimming pool locker room","A sauna","A sensory deprivation tank center","A yoga retreat",
+  "A silent meditation retreat","A monastery kitchen","A church potluck","A confession booth","A wedding chapel in Vegas",
+  "A funeral reception","A cemetery at dusk","A seance parlor","A haunted hayride","A wax museum",
+  "A natural history museum","A planetarium dome","A science fair","A spelling bee stage","A jury deliberation room",
+  "A witness stand","A prison visiting room","A parole hearing","A police stakeout van","A detective's office",
+  "A spy safehouse","A war room","A nuclear bunker","A space station airlock","A Mars colony greenhouse",
 ];
 
 const WORDS = [
@@ -529,9 +580,28 @@ const SUGGESTIONS = [
   "group project","the in-laws","road trip","power outage","new neighbor","the diagnosis","stage fright",
 ];
 
-function pick(arr){ return arr[Math.floor(Math.random() * arr.length)]; }
+// Deal prompts like a shuffled deck: every item comes out once before anything repeats.
+// Decks persist in localStorage so repeats stay impossible across sessions too.
+const DECKS_KEY = "scene-prompt-decks";
+const sceneDecks = (() => { try { return JSON.parse(localStorage.getItem(DECKS_KEY) || "{}"); } catch { return {}; } })();
+function pick(arr, deckName){
+  if (!deckName) return arr[Math.floor(Math.random() * arr.length)];
+  const key = `${deckName}|${arr.length}`; // pool growth auto-deals a fresh deck
+  let deck = sceneDecks[key];
+  if (!Array.isArray(deck) || deck.length === 0) {
+    deck = arr.map((_, i) => i);
+    for (let i = deck.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [deck[i], deck[j]] = [deck[j], deck[i]];
+    }
+    sceneDecks[key] = deck;
+  }
+  const v = arr[deck.pop()];
+  try { localStorage.setItem(DECKS_KEY, JSON.stringify(sceneDecks)); } catch {}
+  return v;
+}
 const POOLS = { relationship:RELATIONSHIPS, location:LOCATIONS, word:WORDS, theme:THEMES, suggestion:SUGGESTIONS, thrown:WORDS };
-function valueFor(kind){ const p = POOLS[kind]; return p ? pick(p) : ""; }
+function valueFor(kind){ const p = POOLS[kind]; return p ? pick(p, kind) : ""; }
 
 // ---- Games / modes ------------------------------------------------------
 const MODES = {
