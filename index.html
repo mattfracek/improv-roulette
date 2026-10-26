@@ -970,7 +970,26 @@ async function handleSignal(msg){
       : "Cue sent \u{1F3AD} Tap Start so you're ready when they show up.");
   }
   else if(msg.t === "cue-cooldown"){ setStatus("Easy.. you cued them just a few minutes ago."); }
-  else if(msg.t === "friend-need-auth"){ ensureAccount(() => {}); }
+  else if(msg.t === "friend-need-auth"){
+    // The server rejected our session even though it looked fine locally (secret
+    // rotation, clock skew). Drop it so ensureAccount actually re-opens sign-in.
+    const pna = getProfile();
+    if(pna && pna.session){
+      delete pna.session; pna.relogin = true;
+      try { localStorage.setItem("ipprofile", JSON.stringify(pna)); } catch(_){}
+      renderFriends();
+    }
+    ensureAccount(() => {});
+  }
+  else if(msg.t === "session-refresh"){
+    // Sliding renewal: the server re-issues the 90-day token on signed-in visits,
+    // so only a 90-day absence ever signs someone out.
+    const psr = getProfile();
+    if(psr && psr.session && msg.session){
+      psr.session = msg.session; delete psr.relogin;
+      try { localStorage.setItem("ipprofile", JSON.stringify(psr)); } catch(_){}
+    }
+  }
   else if(msg.t === "left"){
     if(GREENROOM){
       if(msg.reason === "lost" && currentPartnerId){
@@ -1058,7 +1077,24 @@ let handUp = false, grRoster = [], grBusy = false, pendingAfterProfile = null, s
 let rejoinTarget = null;   // { id, name, until } — sticky scenes: try to restore a LOST partner
 const AVATARS = ["\u{1F3AD}","\u{1F604}","\u{1F920}","\u{1F575}\u{FE0F}","\u{1F475}","\u{1F9D9}","\u{1F916}","\u{1F451}","\u{1F414}","\u{1F996}"];
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
-function getProfile(){ try { return JSON.parse(localStorage.getItem("ipprofile")||"null"); } catch { return null; } }
+function sessionExpMs(session){
+  try {
+    const b = String(session).split(".")[0].replace(/-/g,"+").replace(/_/g,"/");
+    return JSON.parse(atob(b + "=".repeat((4 - b.length % 4) % 4))).exp || 0;
+  } catch { return 0; }
+}
+function getProfile(){
+  let p; try { p = JSON.parse(localStorage.getItem("ipprofile")||"null"); } catch { return null; }
+  // Sessions are 90-day signed tokens. An expired one still LOOKS signed-in locally
+  // while the server ignores it — friends seem to vanish. Strip it here so the UI
+  // honestly asks for a fresh sign-in; the account + friendships are safe server-side.
+  if(p && p.session && sessionExpMs(p.session) < Date.now()){
+    delete p.session;
+    p.relogin = true;
+    try { localStorage.setItem("ipprofile", JSON.stringify(p)); } catch(_){}
+  }
+  return p;
+}
 
 // First-party source attribution: ?ref=name is counted once (visit) and again
 // on first sign-up. No cookies, no identity, nothing sent to third parties.
@@ -1186,6 +1222,13 @@ function openProfileModal(){
   document.getElementById("authStep").hidden = !needAuth;
   document.getElementById("profileStep").hidden = needAuth;
   if(needAuth){
+    // Returning user with a lapsed session: skip the sales pitch, reassure instead.
+    const re = !!p.relogin;
+    document.querySelector("#authStep .modal-title").textContent = re ? "Welcome back" : "Make it yours";
+    document.querySelector("#authStep .modal-sub").textContent = re
+      ? "Your sign-in expired.. it happens after 90 days away. Sign back in and everything is right where you left it.. friends included."
+      : "Sign in free and the good stuff sticks:";
+    document.querySelectorAll("#authStep .benefit").forEach(b => { b.style.display = re ? "none" : ""; });
     appleBtn.style.display = "";
     appleBtn.disabled = false;
     appleBtn.innerHTML = "&#63743; Continue with Apple";
@@ -1421,9 +1464,11 @@ function renderFriends(){
   document.getElementById("acctOk").hidden = !p.session;
   document.getElementById("amAv").textContent = p.avatar || "\u{1F3AD}";
   document.getElementById("amName").textContent = p.name;
-  document.getElementById("amState").innerHTML = p.session ? '<span class="ok">&#10003;</span> signed in' : "profile not saved";
+  document.getElementById("amState").innerHTML = p.session ? '<span class="ok">&#10003;</span> signed in' : (p.relogin ? "sign-in expired" : "profile not saved");
   if(!p.session){
-    frEls.list.innerHTML = '<div class="gr-empty"><a href="#" id="acctSignin" style="color:var(--accent);font-weight:700">Sign in</a> to make friends you keep.. then after a scene you love, tap <b>&#11088; Add friend</b>.</div>';
+    frEls.list.innerHTML = p.relogin
+      ? '<div class="gr-empty">Your sign-in expired (they last 90 days).<br><a href="#" id="acctSignin" style="color:var(--accent);font-weight:700">Sign back in</a> and your friends will be right where you left them.</div>'
+      : '<div class="gr-empty"><a href="#" id="acctSignin" style="color:var(--accent);font-weight:700">Sign in</a> to make friends you keep.. then after a scene you love, tap <b>&#11088; Add friend</b>.</div>';
     const a = document.getElementById("acctSignin");
     if(a) a.onclick = (e) => { e.preventDefault(); frEls.wrap.hidden = true; profileNeedsAuth = true; openProfileModal(); };
     return;
